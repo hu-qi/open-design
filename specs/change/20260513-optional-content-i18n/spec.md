@@ -1,7 +1,7 @@
 ---
 id: 20260513-optional-content-i18n
 name: Optional Content I18n
-status: researched
+status: designed
 created: '2026-05-13'
 ---
 
@@ -75,34 +75,94 @@ created: '2026-05-13'
 
 ## Design
 
-<!-- Technical approach, architecture decisions, and test strategy. Each design decision should cite a fact source. -->
+### Architecture Overview
+
+```mermaid
+flowchart TD
+  A[内容资源: skills / design-systems / prompt-templates] --> B[英文源 metadata]
+  B --> C[localized runtime helpers]
+  D[可选 localized dictionaries: de / fr / ru] --> C
+  C --> E[非空展示内容]
+  F[e2e localized-content smoke] --> E
+  G[覆盖文档 / 贡献文档] --> H[贡献者预期: 英文 fallback 必填, de/fr/ru 翻译可选]
+```
+
+### Change Scope
+
+- Area: `e2e/tests/localized-content.test.ts` 的 category / tag 覆盖断言。Impact: 移除 `de` / `fr` / `ru` 字典必须覆盖所有 discovered design-system category、prompt-template category、prompt-template tag 的硬性要求，保留资源可显示 smoke。Source: `e2e/tests/localized-content.test.ts:333-409`
+- Area: `apps/web/src/i18n/content.ts` runtime fallback。Impact: 作为可选翻译的运行时基础，不需要新增 fallback 机制。Source: `apps/web/src/i18n/content.ts:1010-1053`
+- Area: `apps/web/tests/i18n/content.test.ts` fallback 单元测试。Impact: 补强或保留字段级 fallback 断言，确保缺 localized copy 时英文源字段继续生效。Source: `apps/web/tests/i18n/content.test.ts:21-80`
+- Area: `docs/skills-contributing.md` 和 `docs/testing/e2e-coverage/settings.md`。Impact: 把贡献者要求和覆盖说明改成“英文 fallback 必填、localized copy 可选”。Source: `docs/skills-contributing.md:188-202,232-241`; `docs/testing/e2e-coverage/settings.md:68-69,121`
+- Area: `docs/design-systems.md`。Impact: 保持现有 design-system fallback 文档语义一致，只有相关 wording 需要同步时再改。Source: `docs/design-systems.md:251-273`
+
+### Design Decisions
+
+- Decision: 不改 `LOCALIZED_CONTENT_IDS` 的生成方式；它继续表达“当前 locale 已经存在翻译的 id 集合”。Source: `apps/web/src/i18n/content.ts:981-996`; `apps/web/tests/i18n/content.test.ts:12-19`
+- Decision: 删除或改写 e2e 中 `covers every discovered design-system category and prompt tag` 的全量覆盖断言，让 category / tag 字典 key 成为可选翻译清单。Source: `e2e/tests/localized-content.test.ts:380-409`; `apps/web/src/i18n/content.ts:1031-1052`
+- Decision: 保留 `derives displayable resources from discovered English fallback content` 这条 e2e smoke，继续要求 skills、design systems、prompt templates 在 `de` / `fr` / `ru` 下能展示非空内容。Source: `e2e/tests/localized-content.test.ts:333-377`
+- Decision: 保留资源读取阶段的 fail-fast 英文 fallback 校验，例如缺 `description`、design-system `category`、prompt-template `title` / `summary` 时继续失败。Source: `e2e/tests/localized-content.test.ts:155-179,194-240,243-330`
+- Decision: 文档把 featured localized copy 改为推荐增强路径，贡献 PR 的 required path 聚焦完整英文 display copy 与 fallback 覆盖。Source: `docs/skills-contributing.md:188-202,232-241`
+- Decision: 覆盖矩阵中的 SET-043 / SET-044 改写为 fallback 展示完整性与可选翻译校验，避免文档继续表达全 locale 全 id 覆盖。Source: `docs/testing/e2e-coverage/settings.md:68-69,121`
+
+### Why this design
+
+- 当前 runtime 已有字段级 fallback，变更主要是把测试与文档从“翻译完整性 gate”调整为“展示完整性 gate”。
+- `LOCALIZED_CONTENT_IDS` 继续保留现有语义，后续仍可用于展示翻译覆盖情况或检查已存在翻译字典本身。
+- 资源仍必须提供完整英文 metadata，缺少真正必需的 fallback 输入会继续早失败。
+
+### Test Strategy
+
+- E2E: 运行 `pnpm --filter @open-design/e2e test tests/localized-content.test.ts`，验证真实仓库资源在 `de` / `fr` / `ru` 下仍可展示，且 category / tag 缺翻译不会阻塞。Source: `e2e/tests/localized-content.test.ts:333-377`; `e2e/AGENTS.md:40-55`
+- Web unit: 运行 `pnpm --filter @open-design/web test`，覆盖 localized ids 仍来自字典，以及 skill/design-system/prompt-template 字段级 fallback。Source: `apps/web/tests/i18n/content.test.ts:12-80`; `apps/AGENTS.md:27-33,47-59`
+- Probe: 本地临时新增一个未补 `de` / `fr` / `ru` localized dictionary 的 probe 类内容资源，然后运行 CI 等价验证，确认英文 fallback 可显示且缺可选翻译不会阻塞；验证后移除临时 probe 内容。Source: `e2e/tests/localized-content.test.ts:155-409`; `docs/skills-contributing.md:188-202`
+- Repo checks: 运行 `pnpm guard` 和 `pnpm typecheck`，覆盖仓库级脚本与类型边界。Source: `AGENTS.md#validation-strategy`
+
+### Pseudocode
+
+Flow:
+  1. 读取真实资源并校验英文 fallback metadata 必填字段。
+  2. 对 `de` / `fr` / `ru` 调用 runtime localization helper。
+  3. 断言 skill description、design-system summary、prompt-template title / summary 非空。
+  4. 让 design-system category、prompt-template category、prompt-template tag 缺 localized dictionary 时走原值 fallback。
+  5. 文档说明 localized dictionaries 是可选增强，英文 fallback metadata 是贡献必填项。
+
+### File Structure
+
+- `e2e/tests/localized-content.test.ts` - 调整 category / tag 覆盖测试，保留真实资源 fallback smoke。
+- `apps/web/tests/i18n/content.test.ts` - 保留或补强 fallback 单元测试。
+- `docs/skills-contributing.md` - 更新 skill / design-template 贡献 i18n 要求。
+- `docs/testing/e2e-coverage/settings.md` - 更新 localized-content 覆盖矩阵说明。
+- `docs/design-systems.md` - 需要时同步 wording，保持 design-system fallback 文档一致。
+
+### Interfaces / APIs
+
+- 无外部 API、DTO、数据库 schema、sidecar protocol 变更。
+- `LOCALIZED_CONTENT_IDS` 导出保持现状，继续表示已有 localized dictionary 的 key 集合。Source: `apps/web/src/i18n/content.ts:981-1000`
+
+### Edge Cases
+
+- Prompt template 没有 `category` 时继续归入 `General`，`General` 缺 localized copy 时 fallback 为原值。Source: `e2e/tests/localized-content.test.ts:311-312`; `apps/web/src/i18n/content.ts:1035-1052`
+- Prompt template tags 只对有效非空字符串生效，缺 localized tag 时 fallback 为原 tag。Source: `e2e/tests/localized-content.test.ts:313-318`; `apps/web/src/i18n/content.ts:1045-1052`
+- Featured skill 缺 localized copy 时展示英文 fallback，文档将其定位为推荐增强路径。Source: `docs/skills-contributing.md:188-202`
+- 缺英文 fallback metadata 时继续失败，防止以空展示内容掩盖资源错误。Source: `e2e/tests/localized-content.test.ts:155-179,194-240,243-330`
 
 ## Plan
 
-<!-- Optional: Step breakdown for complex features that need multiple implementation steps.
-     Decided during Design. Checked off during Implement.
-     Keep this section compact and step-based.
-     Use markdown checkboxes for all step and substep items, for example:
-     - [ ] Step 1: Foo
-       - [ ] Substep 1.1 Implement: Foo foundation
-       - [ ] Substep 1.2 Implement: Foo integration
-       - [ ] Substep 1.3 Implement: Foo edge handling
-       - [ ] Substep 1.4 Verify: Foo automated coverage
-       - [ ] Substep 1.5 Verify: Foo manual workflow
-     - [ ] Step 2: Bar
-       - [ ] Substep 2.1 Implement: Bar
-       - [ ] Substep 2.2 Verify: Bar
-     - [ ] Step 3: Baz
-       - [ ] Substep 3.1 Implement: Baz
-       - [ ] Substep 3.2 Verify: Baz
-     Use a capability-based step breakdown with reviewable, meaningful increments.
-     Good boundaries align with one user-visible workflow, one subsystem/integration boundary, one migration/rollout step, or one stabilization milestone.
-     Each step must include small, independent substeps for implementation and immediate testing/verification.
-     Within each step, list implementation substeps before verification substeps.
-     The final step may focus on overall testing/verification, edge cases, regression coverage, and coverage improvements.
-     A step is complete only when relevant tests pass.
-     Size steps so one coding agent can implement + validate in a single session.
-     Write each substep as one small, independent task. -->
+- [ ] Step 1: 调整 localized-content 测试 gate
+  - [ ] Substep 1.1 Implement: 移除或改写 `LOCALIZED_CONTENT_IDS` 对 discovered category / tag 的全量覆盖断言。
+  - [ ] Substep 1.2 Implement: 保留真实资源在 `de` / `fr` / `ru` 下非空显示的 fallback smoke。
+  - [ ] Substep 1.3 Implement: 需要时增加 category / tag fallback 的直接断言，覆盖缺字典时返回原值。
+  - [ ] Substep 1.4 Verify: 运行 `pnpm --filter @open-design/e2e test tests/localized-content.test.ts`。
+- [ ] Step 2: 同步贡献和覆盖文档
+  - [ ] Substep 2.1 Implement: 更新 `docs/skills-contributing.md`，把 featured localized copy 表达为可选增强路径。
+  - [ ] Substep 2.2 Implement: 更新 `docs/testing/e2e-coverage/settings.md` 中 SET-043 / SET-044 的覆盖描述。
+  - [ ] Substep 2.3 Implement: 复核 `docs/design-systems.md` 与新语义一致，必要时微调 wording。
+  - [ ] Substep 2.4 Verify: 人工检查文档中不再把 `de` / `fr` / `ru` 内容翻译描述为内容型贡献的硬性阻塞项。
+- [ ] Step 3: 回归验证
+  - [ ] Substep 3.1 Verify: 运行 `pnpm --filter @open-design/web test`。
+  - [ ] Substep 3.2 Verify: 本地临时新增一个未补 `de` / `fr` / `ru` localized dictionary 的 probe 类内容资源，运行 CI 等价验证，确认通过后移除 probe 内容。
+  - [ ] Substep 3.3 Verify: 运行 `pnpm guard`。
+  - [ ] Substep 3.4 Verify: 运行 `pnpm typecheck`。
 
 ## Notes
 
