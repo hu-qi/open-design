@@ -58,6 +58,7 @@ describe('TasksView automation history', () => {
         completedAt,
         summary: 'Updated status_board.md',
         error: null,
+        errorCode: null,
       },
     ];
     const navigateSpy = vi.spyOn(router, 'navigate').mockImplementation(() => {});

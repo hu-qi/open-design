@@ -69,6 +69,7 @@ export interface RoutineRun {
   completedAt: number | null;
   summary: string | null;
   error: string | null;
+  errorCode: string | null;
 }
 
 export interface RoutineRunHandlerStart {
@@ -82,6 +83,7 @@ export interface RoutineRunCompletion {
   status: RoutineRunStatus;
   summary?: string;
   error?: string;
+  errorCode?: string | null;
 }
 
 export type RoutineRunHandler = (input: {
@@ -515,6 +517,7 @@ export class RoutineService {
         completedAt: null,
         summary: null,
         error: null,
+        errorCode: null,
       });
       handlerStart.completion
         .then((completion) => {
@@ -523,6 +526,7 @@ export class RoutineService {
             completedAt: Date.now(),
             summary: completion.summary ?? null,
             error: completion.error ?? null,
+            errorCode: completion.errorCode ?? null,
           });
         })
         .catch((error) => {
@@ -531,6 +535,7 @@ export class RoutineService {
             completedAt: Date.now(),
             summary: null,
             error: error instanceof Error ? error.message : String(error),
+            errorCode: null,
           });
         });
       return handlerStart;

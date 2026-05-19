@@ -84,6 +84,8 @@ export interface RoutineLastRunSummary {
   conversationId: string;
   agentRunId: string;
   summary?: string;
+  error?: string;
+  errorCode?: string;
 }
 
 export interface Routine {
@@ -114,6 +116,7 @@ export interface RoutineRun {
   completedAt: number | null;
   summary: string | null;
   error: string | null;
+  errorCode: string | null;
 }
 
 export interface CreateRoutineRequest {

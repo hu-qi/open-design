@@ -87,6 +87,8 @@ export interface ChatRunStatusResponse {
   updatedAt: number;
   exitCode?: number | null;
   signal?: string | null;
+  error?: string | null;
+  errorCode?: string | null;
 }
 
 export interface ChatRunListResponse {

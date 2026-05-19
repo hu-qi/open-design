@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { createHtmlArtifactManifest, inferLegacyManifest } from '../artifacts/manifest';
+import { resolveHtmlPointerArtifactTarget } from '../artifacts/pointer';
 import { validateHtmlArtifact } from '../artifacts/validate';
 import { createArtifactParser } from '../artifacts/parser';
 import { useT } from '../i18n';
@@ -25,6 +26,7 @@ import {
   fetchPreviewComments,
   fetchDesignSystem,
   fetchDesignTemplate,
+  fetchProjectDesignSystemPackageAudit,
   fetchLiveArtifacts,
   fetchProjectFiles,
   fetchSkill,
@@ -52,7 +54,15 @@ import { randomUUID } from '../utils/uuid';
 import { DEFAULT_NOTIFICATIONS } from '../state/config';
 import type { TodoItem } from '../runtime/todos';
 import { appendErrorStatusEvent } from '../runtime/chat-events';
+import {
+  buildDesignSystemPackageAuditRepairPrompt,
+  summarizeDesignSystemPackageAudit,
+} from '../runtime/design-system-package-audit';
 import { isLiveArtifactTabId, liveArtifactTabId } from '../types';
+import {
+  DESIGN_SYSTEM_WORKSPACE_DISPLAY_TITLE,
+  isDesignSystemWorkspacePrompt,
+} from '../design-system-auto-prompt';
 import {
   createConversation,
   deleteConversation as deleteConversationApi,
@@ -81,6 +91,7 @@ import type {
   DesignSystemSummary,
   OpenTabsState,
   Project,
+  ProjectMetadata,
   PreviewComment,
   PreviewCommentTarget,
   ProjectFile,
@@ -181,8 +192,16 @@ const MAX_CHAT_PANEL_WIDTH = 720;
 const MIN_WORKSPACE_PANEL_WIDTH = 400;
 const SPLIT_RESIZE_HANDLE_WIDTH = 8;
 const CHAT_PANEL_KEYBOARD_STEP = 16;
+const DESIGN_SYSTEM_AUDIT_AUTO_REPAIR_ATTEMPTS = 2;
 const MIN_NORMAL_SPLIT_WIDTH =
   MIN_CHAT_PANEL_WIDTH + SPLIT_RESIZE_HANDLE_WIDTH + MIN_WORKSPACE_PANEL_WIDTH;
+type DesignSystemReviewEntry = NonNullable<ProjectMetadata['designSystemReview']>[string];
+type DesignSystemReviewAgentTask = NonNullable<DesignSystemReviewEntry['agentTask']>;
+interface DesignSystemReviewDetails {
+  feedback?: string;
+  files?: string[];
+  agentTask?: DesignSystemReviewAgentTask;
+}
 
 function workspacePanelMinWidthForSplit(splitWidth: number): number {
   if (!Number.isFinite(splitWidth) || splitWidth <= 0) return MIN_WORKSPACE_PANEL_WIDTH;
@@ -204,6 +223,41 @@ function clampChatPanelWidth(width: number, maxWidth = MAX_CHAT_PANEL_WIDTH): nu
   const effectiveMax = Math.max(0, Math.min(MAX_CHAT_PANEL_WIDTH, Math.floor(maxWidth)));
   const effectiveMin = Math.min(MIN_CHAT_PANEL_WIDTH, effectiveMax);
   return Math.min(effectiveMax, Math.max(effectiveMin, Math.round(width)));
+}
+
+function designSystemFeedbackAttachments(
+  projectFiles: ProjectFile[],
+  sectionFiles: string[],
+): ChatAttachment[] {
+  const fileLookup = new Map(projectFiles.map((file) => [file.name, file]));
+  return sectionFiles
+    .map((name) => fileLookup.get(name))
+    .filter((file): file is ProjectFile => Boolean(file))
+    .slice(0, 8)
+    .map((file) => ({
+      path: file.name,
+      name: file.name,
+      kind: file.kind === 'image' ? 'image' : 'file',
+      size: file.size,
+    }));
+}
+
+function designSystemNeedsWorkPrompt(
+  sectionTitle: string,
+  feedback: string,
+  sectionFiles: string[],
+): string {
+  const fileList =
+    sectionFiles.length > 0
+      ? sectionFiles.map((name) => `- @${name}`).join('\n')
+      : '- No generated files are registered for this section yet.';
+  return (
+    `Needs work on the design system section "${sectionTitle}".\n\n` +
+    `User feedback:\n${feedback}\n\n` +
+    `Relevant section files:\n${fileList}\n\n` +
+    'Revise the design-system project files directly. Keep DESIGN.md, tokens, previews, UI kit examples, and assets consistent with the feedback. ' +
+    'After editing, summarize what changed and which files should be reviewed again.'
+  );
 }
 
 function readSavedChatPanelWidth(): number {
@@ -239,6 +293,10 @@ function autoSendAttachmentsKey(projectId: string): string {
   return `od:auto-send-attachments:${projectId}`;
 }
 
+function designSystemAuditAutoRepairKey(projectId: string): string {
+  return `od:design-system-audit-auto-repair:${projectId}`;
+}
+
 function readAutoSendAttachments(projectId: string): ChatAttachment[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -260,6 +318,53 @@ function clearAutoSendSession(projectId: string): void {
   } catch {
     /* ignore */
   }
+}
+
+function markDesignSystemAuditAutoRepairEligible(projectId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(
+      designSystemAuditAutoRepairKey(projectId),
+      String(DESIGN_SYSTEM_AUDIT_AUTO_REPAIR_ATTEMPTS),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function consumeDesignSystemAuditAutoRepair(projectId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const key = designSystemAuditAutoRepairKey(projectId);
+    const raw = window.sessionStorage.getItem(key);
+    const attemptsRemaining = raw ? Number.parseInt(raw, 10) : 0;
+    if (!Number.isFinite(attemptsRemaining) || attemptsRemaining <= 0) {
+      window.sessionStorage.removeItem(key);
+      return false;
+    }
+    const nextAttemptsRemaining = attemptsRemaining - 1;
+    if (nextAttemptsRemaining > 0) {
+      window.sessionStorage.setItem(key, String(nextAttemptsRemaining));
+    } else {
+      window.sessionStorage.removeItem(key);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearDesignSystemAuditAutoRepair(projectId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(designSystemAuditAutoRepairKey(projectId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function isDesignSystemWorkspaceMetadata(metadata: ProjectMetadata | undefined): boolean {
+  return metadata?.importedFrom === 'design-system';
 }
 
 function isStoredChatAttachment(value: unknown): value is ChatAttachment {
@@ -373,17 +478,26 @@ export function ProjectView({
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [filesRefresh, setFilesRefresh] = useState(0);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const projectFilesRef = useRef<ProjectFile[]>([]);
   const [liveArtifacts, setLiveArtifacts] = useState<LiveArtifactSummary[]>([]);
   const [liveArtifactEvents, setLiveArtifactEvents] = useState<LiveArtifactEventItem[]>([]);
   const [workspaceFocused, setWorkspaceFocused] = useState(false);
-  const [instructionsOpen, setInstructionsOpen] = useState(false);
+  // `closed` → no surface; `review` → read-only saved-state panel with a
+  // preview + reopen-to-edit action (#1822); `edit` → the textarea editor.
+  const [instructionsMode, setInstructionsMode] = useState<'closed' | 'review' | 'edit'>('closed');
   const [instructionsDraft, setInstructionsDraft] = useState(project.customInstructions ?? '');
   const [instructionsSaving, setInstructionsSaving] = useState(false);
-  // Keep the draft in sync with the server value when the editor is closed
-  // (e.g. after an external update or project switch).
+  // Keep the draft in sync with the server value while the editor is not
+  // open (e.g. after an external update or project switch). If the saved
+  // value disappears while the review panel is showing, collapse the
+  // surface so it never renders a stale or empty read-back.
   useEffect(() => {
-    if (!instructionsOpen) setInstructionsDraft(project.customInstructions ?? '');
-  }, [project.customInstructions, instructionsOpen]);
+    if (instructionsMode === 'edit') return;
+    setInstructionsDraft(project.customInstructions ?? '');
+    if (instructionsMode === 'review' && !(project.customInstructions ?? '').trim()) {
+      setInstructionsMode('closed');
+    }
+  }, [project.customInstructions, instructionsMode]);
   // PR #974 round 7 (mrcfps @ useDesignMdState.ts:131): counter that
   // bumps on file-changed SSE events, live_artifact* events, and the
   // chat streaming-completion edge so the staleness chip stays in sync
@@ -403,6 +517,9 @@ export function ProjectView({
     details: string | null;
     code?: string | null;
   } | null>(null);
+  const [chatSeed, setChatSeed] = useState<{ id: string; value: string } | null>(null);
+  const [autoAuditRepairSeed, setAutoAuditRepairSeed] =
+    useState<{ id: string; value: string } | null>(null);
   const [chatPanelWidth, setChatPanelWidth] = useState(readSavedChatPanelWidth);
   const [chatPanelMaxWidth, setChatPanelMaxWidth] = useState(MAX_CHAT_PANEL_WIDTH);
   const [workspacePanelMinWidth, setWorkspacePanelMinWidth] = useState(MIN_WORKSPACE_PANEL_WIDTH);
@@ -470,6 +587,10 @@ export function ProjectView({
   const projectIdRef = useRef(project.id);
   useEffect(() => {
     projectIdRef.current = project.id;
+  }, [project.id]);
+  useEffect(() => {
+    setChatSeed(null);
+    setAutoAuditRepairSeed(null);
   }, [project.id]);
   // Monotonic token bumped on every `conversation-created` refresh dispatch.
   // Two rapid events (e.g. concurrent routine runs against the same reused
@@ -805,9 +926,14 @@ export function ProjectView({
 
   const refreshProjectFiles = useCallback(async (): Promise<ProjectFile[]> => {
     const next = await fetchProjectFiles(project.id);
+    projectFilesRef.current = next;
     setProjectFiles(next);
     return next;
   }, [project.id]);
+
+  useEffect(() => {
+    projectFilesRef.current = projectFiles;
+  }, [projectFiles]);
 
   const refreshLiveArtifacts = useCallback(async (): Promise<LiveArtifactSummary[]> => {
     const next = await fetchLiveArtifacts(project.id);
@@ -1214,6 +1340,51 @@ export function ProjectView({
     [updateMessageById],
   );
 
+  const auditDesignSystemWorkspaceAfterRun = useCallback(
+    async (assistantMessageId: string) => {
+      if (!isDesignSystemWorkspaceMetadata(project.metadata)) return;
+      try {
+        const audit = await fetchProjectDesignSystemPackageAudit(project.id);
+        if (!audit) return;
+        const auditSummary = summarizeDesignSystemPackageAudit(audit);
+        updateMessageById(
+          assistantMessageId,
+          (prev) => ({
+            ...prev,
+            events: [...(prev.events ?? []), { kind: 'status', label: 'audit', detail: auditSummary }],
+          }),
+          true,
+          { telemetryFinalized: true },
+        );
+        const repairPrompt = buildDesignSystemPackageAuditRepairPrompt(audit);
+        if (repairPrompt) {
+          const seed = { id: `audit-${Date.now()}`, value: repairPrompt };
+          setChatSeed(seed);
+          if (consumeDesignSystemAuditAutoRepair(project.id)) {
+            setAutoAuditRepairSeed(seed);
+          }
+        } else {
+          clearDesignSystemAuditAutoRepair(project.id);
+        }
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        updateMessageById(
+          assistantMessageId,
+          (prev) => ({
+            ...prev,
+            events: [
+              ...(prev.events ?? []),
+              { kind: 'status', label: 'audit', detail: `Package audit could not run: ${detail}` },
+            ],
+          }),
+          true,
+          { telemetryFinalized: true },
+        );
+      }
+    },
+    [project.id, project.metadata, updateMessageById],
+  );
+
   const refreshPreviewComments = useCallback(async () => {
     if (!activeConversationId) return;
     const next = await fetchPreviewComments(project.id, activeConversationId);
@@ -1418,7 +1589,7 @@ export function ProjectView({
               clearActiveRunRefs(reattachConversationId, controller, cancelController);
               clearStreamingMarker(reattachConversationId);
               persistNow({ telemetryFinalized: true });
-              void refreshProjectFiles();
+              void refreshProjectFiles().then(() => auditDesignSystemWorkspaceAfterRun(message.id));
               onProjectsRefresh();
             },
             onError: (err) => {
@@ -1505,6 +1676,7 @@ export function ProjectView({
     project.id,
     updateMessageById,
     persistMessageById,
+    auditDesignSystemWorkspaceAfterRun,
     markStreamingConversation,
     clearStreamingMarker,
     clearActiveRunRefs,
@@ -1523,6 +1695,7 @@ export function ProjectView({
       if (messagesConversationIdRef.current !== activeConversationId) return;
       if (currentConversationBusy) return;
       if (!prompt.trim() && attachments.length === 0 && commentAttachments.length === 0) return;
+      setChatSeed(null);
       const runConversationId = activeConversationId;
       setError(null);
       const startedAt = Date.now();
@@ -1615,7 +1788,9 @@ export function ProjectView({
       // so the conversation is identifiable in the dropdown without a
       // round-trip through the agent.
       if (messages.length === 0) {
-        const title = prompt.slice(0, 60).trim();
+        const title = isDesignSystemWorkspacePrompt(prompt)
+          ? DESIGN_SYSTEM_WORKSPACE_DISPLAY_TITLE
+          : prompt.slice(0, 60).trim();
         if (title) {
           setConversations((curr) =>
             curr.map((c) =>
@@ -1813,14 +1988,14 @@ export function ProjectView({
           // up as a real tab (not just the synthetic "live" stream).
           setArtifact((prev) => {
             if (!prev || !prev.html) return prev;
-            void persistArtifact(prev);
+            void refreshProjectFiles().then((nextFiles) => persistArtifact(prev, nextFiles));
             return prev;
           });
           // Refetch the file list directly (rather than just bumping the
           // refresh signal) so we can diff against the pre-turn snapshot
           // and attach the new files to the assistant message as download
           // chips.
-          void refreshProjectFiles().then((nextFiles) => {
+          void refreshProjectFiles().then(async (nextFiles) => {
             const produced = nextFiles.filter((f) => !beforeFileNames.has(f.name));
             setMessages((curr) => {
               const updated = curr.map((m) =>
@@ -1832,6 +2007,7 @@ export function ProjectView({
               if (finalized) persistMessage(finalized, { telemetryFinalized: true });
               return updated;
             });
+            await auditDesignSystemWorkspaceAfterRun(assistantId);
           });
           onProjectsRefresh();
         },
@@ -2020,6 +2196,7 @@ export function ProjectView({
       requestOpenFile,
       persistMessage,
       persistMessageById,
+      auditDesignSystemWorkspaceAfterRun,
       patchAttachedStatuses,
       updateMessageById,
       markStreamingConversation,
@@ -2028,6 +2205,23 @@ export function ProjectView({
       onProjectsRefresh,
     ],
   );
+
+  useEffect(() => {
+    if (!autoAuditRepairSeed) return;
+    if (!activeConversationId) return;
+    if (!messagesInitialized) return;
+    if (currentConversationBusy) return;
+    const repairText = autoAuditRepairSeed.value.trim();
+    setAutoAuditRepairSeed(null);
+    if (!repairText) return;
+    void handleSend(repairText, [], []);
+  }, [
+    activeConversationId,
+    autoAuditRepairSeed,
+    currentConversationBusy,
+    handleSend,
+    messagesInitialized,
+  ]);
 
   const handleSendBoardCommentAttachments = useCallback(
     async (commentAttachments: ChatCommentAttachment[]) => {
@@ -2038,13 +2232,37 @@ export function ProjectView({
   );
 
   const persistArtifact = useCallback(
-    async (art: Artifact) => {
+    async (art: Artifact, projectFilesSnapshot?: ProjectFile[]) => {
       const baseName = (art.identifier || art.title || 'artifact')
         .toLowerCase()
         .replace(/[^a-z0-9_-]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 60) || 'artifact';
       const ext = artifactExtensionFor(art);
+      // Pick a name that doesn't collide with an existing project file.
+      // The first run uses `<base>.<ext>`; subsequent runs append `-2`, `-3`…
+      // so prior artifacts aren't silently overwritten.
+      const currentProjectFiles = projectFilesSnapshot ?? projectFilesRef.current;
+      const existing = new Set(currentProjectFiles.map((f) => f.name));
+      let fileName = `${baseName}${ext}`;
+      let n = 2;
+      while (existing.has(fileName) && savedArtifactRef.current !== fileName) {
+        fileName = `${baseName}-${n}${ext}`;
+        n += 1;
+      }
+      if (ext === '.html') {
+        const pointerTarget = resolveHtmlPointerArtifactTarget({
+          content: art.html,
+          candidateFileName: fileName,
+          projectFiles: currentProjectFiles,
+        });
+        if (pointerTarget) {
+          if (savedArtifactRef.current === pointerTarget) return;
+          savedArtifactRef.current = pointerTarget;
+          requestOpenFile(pointerTarget);
+          return;
+        }
+      }
       // Pre-write structural gate for HTML artifacts (#50, #1143). Reject
       // bodies that obviously aren't a complete document — usually a one-line
       // prose summary the model emitted inside `<artifact type="text/html">`
@@ -2056,16 +2274,6 @@ export function ProjectView({
           setError(`Refused to save artifact "${art.identifier || art.title || 'untitled'}": ${validation.reason}`);
           return;
         }
-      }
-      // Pick a name that doesn't collide with an existing project file.
-      // The first run uses `<base>.<ext>`; subsequent runs append `-2`, `-3`…
-      // so prior artifacts aren't silently overwritten.
-      const existing = new Set(projectFiles.map((f) => f.name));
-      let fileName = `${baseName}${ext}`;
-      let n = 2;
-      while (existing.has(fileName) && savedArtifactRef.current !== fileName) {
-        fileName = `${baseName}-${n}${ext}`;
-        n += 1;
       }
       if (savedArtifactRef.current === fileName) return;
       savedArtifactRef.current = fileName;
@@ -2127,7 +2335,7 @@ export function ProjectView({
         );
       }
     },
-    [project.id, projectFiles, requestOpenFile],
+    [project.id, project.designSystemId, project.skillId, requestOpenFile],
   );
 
   const handleContinueRemainingTasks = useCallback(
@@ -2159,6 +2367,113 @@ export function ProjectView({
     },
     [currentConversationActionDisabled, handleSend],
   );
+
+  const sentDesignSystemReviewTaskKeysRef = useRef<Set<string>>(new Set());
+  const persistDesignSystemReviewEntry = useCallback((
+    sectionTitle: string,
+    entry: DesignSystemReviewEntry,
+  ) => {
+    const baseMetadata: ProjectMetadata = {
+      kind: project.metadata?.kind ?? 'other',
+      ...project.metadata,
+    };
+    const metadata: ProjectMetadata = {
+      ...baseMetadata,
+      designSystemReview: {
+        ...(baseMetadata.designSystemReview ?? {}),
+        [sectionTitle]: entry,
+      },
+    };
+    onProjectChange({ ...project, metadata });
+    void patchProject(project.id, { metadata });
+  }, [onProjectChange, project]);
+  const sendDesignSystemFeedback = useCallback((
+    sectionTitle: string,
+    feedback: string,
+    sectionFiles: string[],
+  ): DesignSystemReviewAgentTask | void => {
+    const cleanFeedback = feedback.trim();
+    if (!cleanFeedback) return;
+    const prompt = designSystemNeedsWorkPrompt(sectionTitle, cleanFeedback, sectionFiles);
+    const queuedAt = new Date().toISOString();
+    if (!activeConversationId || !messagesInitialized || currentConversationActionDisabled) {
+      return {
+        status: 'queued',
+        prompt,
+        queuedAt,
+      };
+    }
+    const task: DesignSystemReviewAgentTask = {
+      status: 'sent',
+      prompt,
+      queuedAt,
+      sentAt: queuedAt,
+    };
+    sentDesignSystemReviewTaskKeysRef.current.add(`${sectionTitle}:${queuedAt}`);
+    void handleSend(prompt, designSystemFeedbackAttachments(projectFiles, sectionFiles), []);
+    return task;
+  }, [
+    activeConversationId,
+    currentConversationActionDisabled,
+    handleSend,
+    messagesInitialized,
+    projectFiles,
+  ]);
+  const persistDesignSystemReviewDecision = useCallback((
+    sectionTitle: string,
+    decision: DesignSystemReviewEntry['decision'],
+    details?: DesignSystemReviewDetails,
+  ) => {
+    const entry: DesignSystemReviewEntry = {
+      decision,
+      updatedAt: new Date().toISOString(),
+    };
+    if (details?.feedback) entry.feedback = details.feedback;
+    if (details?.files) entry.files = details.files;
+    if (details?.agentTask) entry.agentTask = details.agentTask;
+    persistDesignSystemReviewEntry(sectionTitle, entry);
+  }, [persistDesignSystemReviewEntry]);
+  useEffect(() => {
+    if (!activeConversationId || !messagesInitialized || currentConversationActionDisabled) return;
+    const queued = Object.entries(project.metadata?.designSystemReview ?? {}).find(
+      ([, entry]) =>
+        entry.decision === 'needs-work'
+        && Boolean(entry.feedback?.trim())
+        && entry.agentTask?.status === 'queued',
+    );
+    if (!queued) return;
+    const [sectionTitle, entry] = queued;
+    const task = entry.agentTask;
+    if (!task) return;
+    const taskKey = `${sectionTitle}:${task.queuedAt}`;
+    if (sentDesignSystemReviewTaskKeysRef.current.has(taskKey)) return;
+    sentDesignSystemReviewTaskKeysRef.current.add(taskKey);
+    const sectionFiles = entry.files ?? [];
+    const prompt = task.prompt || designSystemNeedsWorkPrompt(
+      sectionTitle,
+      entry.feedback ?? '',
+      sectionFiles,
+    );
+    const sentAt = new Date().toISOString();
+    persistDesignSystemReviewEntry(sectionTitle, {
+      ...entry,
+      agentTask: {
+        ...task,
+        status: 'sent',
+        prompt,
+        sentAt,
+      },
+    });
+    void handleSend(prompt, designSystemFeedbackAttachments(projectFiles, sectionFiles), []);
+  }, [
+    activeConversationId,
+    currentConversationActionDisabled,
+    handleSend,
+    messagesInitialized,
+    persistDesignSystemReviewEntry,
+    project.metadata?.designSystemReview,
+    projectFiles,
+  ]);
 
   const handleExportAsPptx = useCallback(
     (fileName: string) => {
@@ -2353,8 +2668,11 @@ export function ProjectView({
 
   const handleSaveInstructions = useCallback(async () => {
     const value = instructionsDraft.trim() || undefined;
+    // After a save, land on the review panel so the saved value is read
+    // back immediately (#1822); collapse only when it was cleared.
+    const settle = () => setInstructionsMode(value ? 'review' : 'closed');
     if (value === (project.customInstructions ?? undefined)) {
-      setInstructionsOpen(false);
+      settle();
       return;
     }
     setInstructionsSaving(true);
@@ -2362,7 +2680,7 @@ export function ProjectView({
     setInstructionsSaving(false);
     if (!result) return;
     onProjectChange(result);
-    setInstructionsOpen(false);
+    settle();
   }, [project, onProjectChange, instructionsDraft]);
 
   const projectMeta = useMemo(() => {
@@ -2373,6 +2691,16 @@ export function ProjectView({
     const ds = designSystems.find((d) => d.id === project.designSystemId)?.title;
     return [skill, ds].filter(Boolean).join(' · ') || t('project.metaFreeform');
   }, [skills, designTemplates, designSystems, project.skillId, project.designSystemId, t]);
+
+  const designSystemProject = useMemo(() => {
+    if (project.metadata?.importedFrom !== 'design-system') return null;
+    if (!project.designSystemId) return null;
+    return designSystems.find((d) => d.id === project.designSystemId) ?? null;
+  }, [designSystems, project.designSystemId, project.metadata?.importedFrom]);
+  const designSystemActivityEvents = useMemo(
+    () => designSystemProject ? latestDesignSystemActivityEvents(messages) : [],
+    [designSystemProject, messages],
+  );
 
   const isDeck = useMemo(
     () =>
@@ -2600,17 +2928,22 @@ export function ProjectView({
     onClearPendingPrompt();
   }, [project.id, project.pendingPrompt, onClearPendingPrompt]);
   const chatInitialDraft =
-    initialDraft?.projectId === project.id ? initialDraft.value : undefined;
+    chatSeed?.value ?? (initialDraft?.projectId === project.id ? initialDraft.value : undefined);
 
   // Continue in CLI / Finalize design package handlers + keyboard
   // shortcut wiring. Close to the JSX so the data flow is easy to
   // trace from the toolbar back to its sources.
   const handleFinalize = useCallback(() => {
+    const protocol = config.apiProtocol ?? 'anthropic';
     void finalize.trigger({
+      protocol,
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
       model: config.model,
       maxTokens: effectiveMaxTokens(config),
+      ...(protocol === 'azure' && config.apiVersion?.trim()
+        ? { apiVersion: config.apiVersion.trim() }
+        : {}),
     }).then((result) => {
       if (result) void designMdState.refresh();
     });
@@ -2775,6 +3108,9 @@ export function ProjectView({
       return;
     }
     autoSentRef.current = true;
+    if (isDesignSystemWorkspaceMetadata(project.metadata)) {
+      markDesignSystemAuditAutoRepairEligible(project.id);
+    }
     clearAutoSendSession(project.id);
     autoSendAttachmentsRef.current = [];
     void handleSend(seed, attachments, []);
@@ -2784,6 +3120,7 @@ export function ProjectView({
     streaming,
     messages.length,
     project.id,
+    project.metadata,
     initialDraft,
     project.pendingPrompt,
     handleSend,
@@ -2847,25 +3184,76 @@ export function ProjectView({
               {project.name}
             </span>
             <span className="meta" data-testid="project-meta">{projectMeta}</span>
-            <button
-              type="button"
-              className="project-instructions-toggle"
-              title={t('project.customInstructions')}
-              onClick={() => {
-                if (instructionsOpen) setInstructionsDraft(project.customInstructions ?? '');
-                setInstructionsOpen((v) => !v);
-              }}
-            >
-              <Icon name="edit" size={13} />
-            </button>
+            {(project.customInstructions ?? '').trim() ? (
+              <button
+                type="button"
+                className={`project-instructions-chip${instructionsMode !== 'closed' ? ' is-open' : ''}`}
+                data-testid="project-instructions-chip"
+                title={t('project.customInstructions')}
+                aria-expanded={instructionsMode !== 'closed'}
+                onClick={() => setInstructionsMode((m) => (m === 'closed' ? 'review' : 'closed'))}
+              >
+                <Icon name="file" size={11} />
+                <span>{t('project.customInstructions')}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="project-instructions-toggle"
+                data-testid="project-instructions-add"
+                title={t('project.customInstructions')}
+                aria-expanded={instructionsMode !== 'closed'}
+                onClick={() => {
+                  setInstructionsDraft('');
+                  setInstructionsMode((m) => (m === 'closed' ? 'edit' : 'closed'));
+                }}
+              >
+                <Icon name="edit" size={13} />
+              </button>
+            )}
           </span>
         </div>
       </AppChromeHeader>
-      {instructionsOpen && (
+      {instructionsMode === 'review' && (
+        <div className="project-instructions-bar project-instructions-review">
+          <div className="project-instructions-bar-head">
+            <label className="project-instructions-label">{t('project.customInstructions')}</label>
+            <span className="project-instructions-status">
+              <Icon name="check" size={11} />
+              {t('project.instructionsActive')}
+            </span>
+          </div>
+          <div className="project-instructions-preview" data-testid="project-instructions-preview">
+            {project.customInstructions}
+          </div>
+          <div className="project-instructions-actions">
+            <button
+              type="button"
+              className="btn-sm"
+              onClick={() => setInstructionsMode('closed')}
+            >
+              {t('common.close')}
+            </button>
+            <button
+              type="button"
+              className="btn-sm btn-primary"
+              data-testid="project-instructions-edit"
+              onClick={() => {
+                setInstructionsDraft(project.customInstructions ?? '');
+                setInstructionsMode('edit');
+              }}
+            >
+              {t('common.edit')}
+            </button>
+          </div>
+        </div>
+      )}
+      {instructionsMode === 'edit' && (
         <div className="project-instructions-bar">
           <label className="project-instructions-label">{t('project.customInstructions')}</label>
           <textarea
             className="project-instructions-input"
+            data-testid="project-instructions-textarea"
             rows={3}
             maxLength={5000}
             placeholder={t('project.customInstructionsPlaceholder')}
@@ -2877,11 +3265,11 @@ export function ProjectView({
           <div className="project-instructions-actions">
             <button type="button" className="btn-sm" disabled={instructionsSaving} onClick={() => {
               setInstructionsDraft(project.customInstructions ?? '');
-              setInstructionsOpen(false);
+              setInstructionsMode((project.customInstructions ?? '').trim() ? 'review' : 'closed');
             }}>
               {t('common.cancel')}
             </button>
-            <button type="button" className="btn-sm btn-primary" disabled={instructionsSaving} onClick={handleSaveInstructions}>
+            <button type="button" className="btn-sm btn-primary" data-testid="project-instructions-save" disabled={instructionsSaving} onClick={handleSaveInstructions}>
               {t('common.save')}
             </button>
           </div>
@@ -2908,7 +3296,7 @@ export function ProjectView({
             <ChatPane
               // The conversation id is part of the key so switching conversations
               // resets internal scroll/draft state inside ChatPane and ChatComposer.
-              key={`${project.id}:${activeConversationId ?? 'conversation-unavailable'}`}
+              key={`${project.id}:${activeConversationId ?? 'conversation-unavailable'}:${chatSeed?.id ?? 'ready'}`}
               messages={messages}
               streaming={currentConversationStreaming}
               sendDisabled={currentConversationSendDisabled}
@@ -2996,6 +3384,7 @@ export function ProjectView({
           streaming={currentConversationActionDisabled}
           openRequest={openRequest}
           liveArtifactEvents={liveArtifactEvents}
+          designSystemActivityEvents={designSystemActivityEvents}
           tabsState={openTabsState}
           onTabsStateChange={persistTabsState}
           previewComments={previewComments}
@@ -3005,6 +3394,10 @@ export function ProjectView({
           onPluginFolderAgentAction={handlePluginFolderAgentAction}
           focusMode={workspaceFocused}
           onFocusModeChange={setWorkspaceFocused}
+          designSystemProject={designSystemProject}
+          onDesignSystemNeedsWork={sendDesignSystemFeedback}
+          designSystemReview={project.metadata?.designSystemReview}
+          onDesignSystemReviewDecision={persistDesignSystemReviewDecision}
         />
       </div>
       {projectActionsToast ? (
@@ -3042,6 +3435,16 @@ function isTerminalRunStatus(status: ChatMessage['runStatus']): boolean {
 
 function isActiveRunStatus(status: ChatMessage['runStatus']): boolean {
   return status === 'queued' || status === 'running';
+}
+
+function latestDesignSystemActivityEvents(messages: ChatMessage[]): AgentEvent[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== 'assistant') continue;
+    if ((message.events?.length ?? 0) > 0) return message.events ?? [];
+    if (isActiveRunStatus(message.runStatus)) return [];
+  }
+  return [];
 }
 
 // A daemon assistant message that is "queued/running" but has no runId yet
