@@ -28,6 +28,7 @@ test.beforeEach(async ({ page }) => {
   await resetDaemonAppConfig(page);
 
   await page.addInitScript(({ key, codexEnv }) => {
+    if (window.localStorage.getItem(key)) return;
     window.localStorage.setItem(
       key,
       JSON.stringify({
@@ -232,7 +233,8 @@ test('real daemon run previews an artifact from a fake OpenCode runtime', async 
   await createProject(page, 'Fake OpenCode runtime smoke', 'opencode');
   await expectWorkspaceReady(page);
 
-  await sendPrompt(page, 'Fake runtime smoke for opencode');
+  const runResponse = await sendPrompt(page, 'Fake runtime smoke for opencode');
+  expectCreateRunAgentId(runResponse, 'opencode');
 
   const fileName = 'fake-agent-runtime-opencode.html';
   const heading = 'Fake Agent Runtime opencode';
@@ -336,6 +338,7 @@ async function sendPrompt(page: Page, prompt: string) {
     })(),
   ]);
   expect(response.ok()).toBeTruthy();
+  return response;
 }
 
 async function sendPromptAndReloadBeforeCreateResponse(page: Page, prompt: string) {
@@ -605,6 +608,10 @@ async function listConversationMessages(
 function isCreateRunResponse(response: Response): boolean {
   const url = new URL(response.url());
   return url.pathname === '/api/runs' && response.request().method() === 'POST';
+}
+
+function expectCreateRunAgentId(response: Response, agentId: FakeAgentId) {
+  expect(response.request().postDataJSON()).toMatchObject({ agentId });
 }
 
 function currentProject(page: Page): { projectId: string } {
