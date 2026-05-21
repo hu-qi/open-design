@@ -8480,8 +8480,11 @@ export async function startServer({
       const locale = typeof req.body?.locale === 'string' ? req.body.locale : undefined;
       res.json(await orbitService.start('manual', { locale }));
     } catch (err) {
+      const status = typeof err === 'object' && err && 'status' in err && typeof err.status === 'number'
+        ? err.status
+        : 500;
       res
-        .status(500)
+        .status(status)
         .json({ error: String(err && err.message ? err.message : err) });
     }
   });

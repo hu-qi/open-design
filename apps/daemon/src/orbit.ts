@@ -70,16 +70,52 @@ export type OrbitRunHandler = (request: {
   template: OrbitTemplateSelection | null;
 }) => Promise<OrbitRunHandlerStart>;
 
+const SUPPORTED_ORBIT_LOCALE_LABELS = {
+  'en': 'English',
+  'id': 'Indonesian',
+  'de': 'German',
+  'zh-CN': 'Simplified Chinese',
+  'zh-TW': 'Traditional Chinese',
+  'pt-BR': 'Brazilian Portuguese',
+  'es-ES': 'Spanish (Spain)',
+  'ru': 'Russian',
+  'fa': 'Persian',
+  'ar': 'Arabic',
+  'ja': 'Japanese',
+  'ko': 'Korean',
+  'pl': 'Polish',
+  'hu': 'Hungarian',
+  'fr': 'French',
+  'uk': 'Ukrainian',
+  'tr': 'Turkish',
+  'th': 'Thai',
+  'it': 'Italian',
+} as const;
+
+type SupportedOrbitLocale = keyof typeof SUPPORTED_ORBIT_LOCALE_LABELS;
+
+const SUPPORTED_ORBIT_LOCALES = new Set<SupportedOrbitLocale>(
+  Object.keys(SUPPORTED_ORBIT_LOCALE_LABELS) as SupportedOrbitLocale[],
+);
+
+function orbitLocaleError(locale: string): Error & { status: number } {
+  const error = new Error(`unsupported orbit locale: ${locale}`) as Error & { status: number };
+  error.status = 400;
+  return error;
+}
+
 function normalizeOrbitLocale(locale: string | null | undefined): string | null {
   if (typeof locale !== 'string') return null;
   const normalized = locale.trim();
-  return normalized ? normalized : null;
+  if (!normalized) return null;
+  if (!SUPPORTED_ORBIT_LOCALES.has(normalized as SupportedOrbitLocale)) {
+    throw orbitLocaleError(normalized);
+  }
+  return normalized;
 }
 
 function orbitLocaleLabel(locale: string): string {
-  if (/^zh(?:-cn|-hans)?$/i.test(locale)) return 'Simplified Chinese';
-  if (/^zh(?:-tw|-hk|-mo|-hant)?$/i.test(locale)) return 'Traditional Chinese';
-  return locale;
+  return SUPPORTED_ORBIT_LOCALE_LABELS[locale as SupportedOrbitLocale] ?? locale;
 }
 
 function buildOrbitLocaleInstructions(locale: string | null): string[] {

@@ -24,7 +24,7 @@ od:
     entry: index.html
   design_system:
     requires: false
-  example_prompt: "生成今天的 Open Orbit GitHub 简报。GitHub 是我唯一已连接的数据源——请拉取昨天的 PR、审查请求、Issue、CI 运行和合并记录，并将它们渲染为一个 GitHub Notifications + PR diff 风格的页面。"
+  example_prompt: "Generate today's Open Orbit GitHub briefing. GitHub is my only connected connector — pull yesterday's PRs, review requests, issues, CI runs, and merges and render them as a GitHub Notifications + PR-diff page."
 ---
 
 # Orbit · GitHub Briefing
