@@ -778,7 +778,6 @@ export const fa: Dict = {
   'chat.conversationsAria': 'تاریخچه مکالمات',
   'chat.newConversation': 'مکالمه جدید',
   'chat.newConversationsTitle': 'مکالمه جدید',
-  'chat.resumeConversation': 'ادامه در مکالمه جدید',
   'chat.conversationsHeading': 'مکالمات',
   'chat.new': 'جدید',
   'chat.emptyConversations': 'هنوز هیچ مکالمه‌ای وجود ندارد.',

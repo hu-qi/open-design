@@ -644,7 +644,6 @@ export const de: Dict = {
   'chat.conversationsAria': 'Konversationsverlauf',
   'chat.newConversation': 'Neue Konversation',
   'chat.newConversationsTitle': 'Neue Konversation',
-  'chat.resumeConversation': 'In neuer Konversation fortsetzen',
   'chat.conversationsHeading': 'Konversationen',
   'chat.new': 'Neu',
   'chat.emptyConversations': 'Noch keine Konversationen.',

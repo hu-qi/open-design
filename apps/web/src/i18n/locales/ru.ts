@@ -777,7 +777,6 @@ export const ru: Dict = {
   'chat.conversationsAria': 'История разговоров',
   'chat.newConversation': 'Новый разговор',
   'chat.newConversationsTitle': 'Новый разговор',
-  'chat.resumeConversation': 'Продолжить в новом разговоре',
   'chat.conversationsHeading': 'Разговоры',
   'chat.new': 'Новый',
   'chat.emptyConversations': 'Разговоров пока нет.',

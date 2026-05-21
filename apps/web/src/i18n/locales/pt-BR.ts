@@ -777,7 +777,6 @@ export const ptBR: Dict = {
   'chat.conversationsAria': 'Histórico de conversas',
   'chat.newConversation': 'Nova conversa',
   'chat.newConversationsTitle': 'Nova conversa',
-  'chat.resumeConversation': 'Retomar em nova conversa',
   'chat.conversationsHeading': 'Conversas',
   'chat.new': 'Nova',
   'chat.emptyConversations': 'Ainda não há conversas.',
