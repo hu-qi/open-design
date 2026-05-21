@@ -143,12 +143,9 @@ export function Header({
       <div className='container nav-inner'>
         <a href={localizedBrandHref} className='brand'>
           <span className='brand-mark'>
-            <img src='/logo.webp' alt='' width={36} height={36} />
+            <img src='/logo.webp' alt='' width={44} height={44} />
           </span>
-          <span>Open Design</span>
-          <span className='brand-meta'>
-            <b>Studio Nº 01</b>Berlin / Open / Earth
-          </span>
+          <span className='brand-name'>Open Design</span>
         </a>
         {/*
           Mobile / tablet hamburger. Hidden by CSS at ≥1100px (the desktop
