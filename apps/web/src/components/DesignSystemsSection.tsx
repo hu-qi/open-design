@@ -154,12 +154,13 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
     setPreviewSystem(null);
     setImportPath('');
     setImportedDesignSystem(result.designSystem);
-    setImportMessage(`Imported ${result.designSystem.title}`);
+    setImportMessage(result.designSystem.title);
   }
 
   function viewImportedDesignSystem() {
     if (!importedDesignSystem) return;
     setSearch('');
+    setShowOnlyHidden(false);
     setCategoryFilter(importedDesignSystem.category);
     setPreviewSystem(null);
     setHighlightedDesignSystemId(importedDesignSystem.id);
@@ -180,7 +181,8 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
     <section className="settings-section settings-design-systems">
       <div className="library-section-header">
         <h4 className="library-section-title">
-          Installed <span className="library-section-count">{designSystems.length}</span>
+          {t('settings.designSystemsInstalled')}{' '}
+          <span className="library-section-count">{designSystems.length}</span>
         </h4>
         <button
           type="button"
@@ -189,18 +191,22 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
           onClick={() => setAddOpen((v) => !v)}
         >
           <span aria-hidden="true" className="library-add-btn-icon">+</span>
-          <span>Add design system</span>
+          <span>{t('settings.designSystemsAdd')}</span>
         </button>
       </div>
       {hiddenDesignSystemCount > 0 ? (
         <div className="library-hidden-banner">
-          <span>{hiddenDesignSystemCount} hidden from home gallery</span>
+          <span>
+            {t('settings.designSystemsHiddenCount', { count: hiddenDesignSystemCount })}
+          </span>
           <button
             type="button"
             className="library-hidden-banner-link"
             onClick={toggleShowOnlyHidden}
           >
-            {showOnlyHidden ? 'Show all' : 'Show hidden'}
+            {showOnlyHidden
+              ? t('settings.designSystemsShowAll')
+              : t('settings.designSystemsShowHidden')}
           </button>
         </div>
       ) : null}
@@ -210,7 +216,9 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
           <form className="library-install-form" onSubmit={handleLocalImport}>
             <div className="library-import-controls">
               <div className="library-import-row">
-                <span className="library-import-option-label">Source</span>
+                <span className="library-import-option-label">
+                  {t('settings.designSystemsSource')}
+                </span>
                 <div className="seg-control library-import-source-control">
                   <button
                     type="button"
@@ -220,7 +228,7 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                       clearImportFeedback();
                     }}
                   >
-                    Local
+                    {t('settings.designSystemsSourceLocal')}
                   </button>
                   <button
                     type="button"
@@ -230,38 +238,42 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                       clearImportFeedback();
                     }}
                   >
-                    GitHub
+                    {t('settings.designSystemsSourceGithub')}
                   </button>
                 </div>
               </div>
               <div className="library-import-row">
-                <span className="library-import-option-label">Structure</span>
+                <span className="library-import-option-label">
+                  {t('settings.designSystemsStructure')}
+                </span>
                 <div className="seg-control library-import-mode-control">
                   <button
                     type="button"
                     className={packageImportMode === 'hybrid' ? 'active' : ''}
                     onClick={() => setPackageImportMode('hybrid')}
                   >
-                    Hybrid
+                    {t('settings.designSystemsModeHybrid')}
                   </button>
                   <button
                     type="button"
                     className={packageImportMode === 'normalized' ? 'active' : ''}
                     onClick={() => setPackageImportMode('normalized')}
                   >
-                    Normalized
+                    {t('settings.designSystemsModeNormalized')}
                   </button>
                   <button
                     type="button"
                     className={packageImportMode === 'verbatim' ? 'active' : ''}
                     onClick={() => setPackageImportMode('verbatim')}
                   >
-                    Verbatim
+                    {t('settings.designSystemsModeVerbatim')}
                   </button>
                 </div>
               </div>
               <div className="library-import-row">
-                <span className="library-import-option-label">Craft</span>
+                <span className="library-import-option-label">
+                  {t('settings.designSystemsCraft')}
+                </span>
                 <div className="library-import-checkboxes">
                   <label className="library-import-checkbox">
                     <input
@@ -273,7 +285,7 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                         )
                       }
                     />
-                    <span>Color</span>
+                    <span>{t('settings.designSystemsCraftColor')}</span>
                   </label>
                   <label className="library-import-checkbox">
                     <input
@@ -285,13 +297,15 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                         )
                       }
                     />
-                    <span>Accessibility</span>
+                    <span>{t('settings.designSystemsCraftAccessibility')}</span>
                   </label>
                 </div>
               </div>
               <div className="library-import-row">
                 <span className="library-import-option-label">
-                  {importSource === 'github' ? 'GitHub URL' : 'Project path'}
+                  {importSource === 'github'
+                    ? t('settings.designSystemsGithubUrl')
+                    : t('settings.designSystemsProjectPath')}
                 </span>
                 <div className="library-install-row">
                   <input
@@ -312,8 +326,8 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                     {importing
                       ? t('settings.libraryLoading')
                       : importSource === 'github'
-                        ? 'Import from GitHub'
-                        : 'Import from project'}
+                        ? t('settings.designSystemsImportGithub')
+                        : t('settings.designSystemsImportProject')}
                   </button>
                 </div>
               </div>
@@ -321,14 +335,14 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
             {importError ? <p className="library-install-error">{importError}</p> : null}
             {importMessage ? (
               <p className="library-install-status">
-                <span>{importMessage}</span>
+                <span>{t('settings.designSystemsImportedStatus', { title: importMessage })}</span>
                 {importedDesignSystem ? (
                   <button
                     type="button"
                     className="library-install-status-link"
                     onClick={viewImportedDesignSystem}
                   >
-                    View imported design system
+                    {t('settings.designSystemsViewImported')}
                   </button>
                 ) : null}
               </p>
@@ -347,7 +361,7 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
         />
         <label className="library-filter-select">
           <select
-            aria-label="Category"
+            aria-label={t('settings.designSystemsCategory')}
             value={categoryFilter}
             data-active={categoryFilter !== 'All' ? 'true' : undefined}
             onChange={(e) => setCategoryFilter(e.target.value)}
@@ -362,7 +376,7 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                   key={cat}
                   value={cat}
                 >
-                  {cat === 'All' ? 'All categories' : cat} ({count})
+                  {cat === 'All' ? t('settings.designSystemsAllCategories') : cat} ({count})
                 </option>
               );
             })}
@@ -426,11 +440,11 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
                       <div className="library-ds-toggle-cell">
                         <label
                           className="toggle-switch toggle-switch-sm"
-                          title="Show in home gallery"
+                          title={t('settings.designSystemsShowInHomeGallery')}
                         >
                           <input
                             type="checkbox"
-                            aria-label="Show in home gallery"
+                            aria-label={t('settings.designSystemsShowInHomeGallery')}
                             checked={!disabledDS.has(ds.id)}
                             onChange={(e) =>
                               toggleDSDisabled(ds.id, e.target.checked)

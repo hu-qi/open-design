@@ -15,6 +15,8 @@ const {
   fetchDesignSystemsMock,
   fetchSkillMock,
   fetchDesignSystemMock,
+  importLocalDesignSystemMock,
+  importGitHubDesignSystemMock,
   fetchProviderModelsMock,
 } = vi.hoisted(() => ({
   playSoundMock: vi.fn(),
@@ -27,6 +29,8 @@ const {
   fetchDesignSystemsMock: vi.fn(),
   fetchSkillMock: vi.fn(),
   fetchDesignSystemMock: vi.fn(),
+  importLocalDesignSystemMock: vi.fn(),
+  importGitHubDesignSystemMock: vi.fn(),
   fetchProviderModelsMock: vi.fn(),
 }));
 
@@ -55,6 +59,8 @@ vi.mock('../../src/providers/registry', async () => {
     fetchDesignSystems: fetchDesignSystemsMock,
     fetchSkill: fetchSkillMock,
     fetchDesignSystem: fetchDesignSystemMock,
+    importLocalDesignSystem: importLocalDesignSystemMock,
+    importGitHubDesignSystem: importGitHubDesignSystemMock,
     codexPetSpritesheetUrl: (pet: { spritesheetUrl: string }) => pet.spritesheetUrl,
   };
 });
@@ -274,6 +280,8 @@ beforeEach(() => {
   fetchDesignSystemsMock.mockReset();
   fetchSkillMock.mockReset();
   fetchDesignSystemMock.mockReset();
+  importLocalDesignSystemMock.mockReset();
+  importGitHubDesignSystemMock.mockReset();
   fetchProviderModelsMock.mockReset();
   notificationPermissionMock.mockReturnValue('default');
   requestNotificationPermissionMock.mockResolvedValue('granted');
@@ -300,6 +308,24 @@ beforeEach(() => {
     id,
     body: `design system body for ${id}`,
   }));
+  importLocalDesignSystemMock.mockResolvedValue({
+    designSystem: {
+      id: 'imported-system',
+      title: 'Imported System',
+      summary: 'A newly imported system.',
+      category: 'Imported',
+      swatches: ['#0f766e', '#ccfbf1'],
+    },
+  });
+  importGitHubDesignSystemMock.mockResolvedValue({
+    designSystem: {
+      id: 'github-system',
+      title: 'GitHub System',
+      summary: 'A GitHub imported system.',
+      category: 'Imported',
+      swatches: ['#1d4ed8', '#bfdbfe'],
+    },
+  });
   fetchProviderModelsMock.mockResolvedValue({
     ok: true,
     kind: 'success',
@@ -2500,6 +2526,48 @@ describe('SettingsDialog design systems section', () => {
       }),
       {},
     );
+  });
+
+  it('shows an imported design system from the hidden-only import CTA', async () => {
+    renderSettingsDialog(
+      {
+        mode: 'daemon',
+        agentId: 'codex',
+        disabledDesignSystems: ['neutral-modern'],
+      },
+      { initialSection: 'designSystems' },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Neutral Modern')).toBeTruthy();
+      expect(screen.getByText('Signal Green')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show hidden' }));
+    expect(screen.getByText('Neutral Modern')).toBeTruthy();
+    expect(screen.queryByText('Signal Green')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add design system' }));
+    fireEvent.change(screen.getByPlaceholderText('/path/to/project'), {
+      target: { value: '/tmp/imported-system' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Import from project' }));
+
+    await waitFor(() => {
+      expect(importLocalDesignSystemMock).toHaveBeenCalledWith({
+        baseDir: '/tmp/imported-system',
+        importMode: 'hybrid',
+        craftApplies: [],
+      });
+      expect(screen.getByText('Imported Imported System')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View imported design system' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Imported System')).toBeTruthy();
+    });
+    expect(screen.queryByText('No items match your search.')).toBeNull();
   });
 });
 
