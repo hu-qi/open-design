@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { useAnalytics } from '../analytics/provider';
 import { trackChatPanelClick } from '../analytics/events';
 import { useT } from '../i18n';
@@ -361,6 +361,7 @@ export function ChatPane({
   const logRef = useRef<HTMLDivElement | null>(null);
   const historyWrapRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<ChatComposerHandle | null>(null);
+  const pinnedTodoRef = useRef<HTMLDivElement | null>(null);
   const didInitialScrollRef = useRef(false);
   // Tracks whether the user is glued close enough to the bottom that
   // streamed content should auto-follow. Distinct from the jump-button
@@ -609,12 +610,32 @@ export function ChatPane({
       }
     };
 
+    // The PinnedTodoSlot renders outside the scroll container. When the todo
+    // card grows, the chat-log's clientHeight shrinks (flex layout) and the
+    // user drifts away from the bottom. Observe the pinned-todo div so
+    // followLatestIfPinned fires whenever the card changes height.
+    let observedPinnedTodo: Element | null = null;
+    const syncPinnedTodo = () => {
+      if (!resizeObserver) return;
+      const pinnedEl = pinnedTodoRef.current;
+      if (pinnedEl && observedPinnedTodo !== pinnedEl) {
+        if (observedPinnedTodo) resizeObserver.unobserve(observedPinnedTodo);
+        resizeObserver.observe(pinnedEl);
+        observedPinnedTodo = pinnedEl;
+      } else if (!pinnedEl && observedPinnedTodo) {
+        resizeObserver.unobserve(observedPinnedTodo);
+        observedPinnedTodo = null;
+      }
+    };
+
     syncObservedChildren();
+    syncPinnedTodo();
 
     const mutationObserver =
       typeof MutationObserver !== 'undefined'
         ? new MutationObserver(() => {
             syncObservedChildren();
+            syncPinnedTodo();
             followLatestIfPinned();
           })
         : null;
@@ -623,6 +644,15 @@ export function ChatPane({
       subtree: true,
       characterData: true,
     });
+    // PinnedTodoSlot lives outside the chat-log subtree (it is a sibling of
+    // .chat-log-wrap inside .pane). The MutationObserver above only fires for
+    // changes inside el, so it cannot detect the slot mounting or unmounting.
+    // Watch the nearest common ancestor (.pane) with childList-only to catch
+    // those transitions and keep syncPinnedTodo current.
+    const paneEl = el.parentElement?.parentElement ?? null;
+    if (paneEl && mutationObserver) {
+      mutationObserver.observe(paneEl, { childList: true });
+    }
 
     return () => {
       if (followFrame !== null) cancelAnimationFrame(followFrame);
@@ -652,6 +682,65 @@ export function ChatPane({
 
   const activeConversation =
     conversations.find((c) => c.id === activeConversationId) ?? null;
+  const activeConversationMissing = !activeConversation;
+  const activeConversationTitle =
+    activeConversation
+      ? activeConversation.title || t('chat.untitledConversation')
+      : t('chat.conversationsHeading');
+  const activeConversationRenameLabel = activeConversation
+    ? t('chat.renameConversationLabel', { title: activeConversationTitle })
+    : '';
+  const titleEditClosedRef = useRef(false);
+  const [editingActiveTitle, setEditingActiveTitle] = useState(false);
+  const [activeTitleDraft, setActiveTitleDraft] = useState('');
+
+  useEffect(() => {
+    if (editingActiveTitle) return;
+    setActiveTitleDraft(activeConversation?.title ?? '');
+  }, [activeConversation?.title, editingActiveTitle]);
+
+  // Switching conversations should always close the inline editor so the
+  // old draft cannot leak into the next conversation.
+  useEffect(() => {
+    titleEditClosedRef.current = true;
+    setEditingActiveTitle(false);
+  }, [activeConversationId]);
+
+  // The selected id can stay stable while the record temporarily vanishes
+  // during a reload; cancel the editor in that case as well.
+  useEffect(() => {
+    if (!activeConversationMissing) return;
+    titleEditClosedRef.current = true;
+    setEditingActiveTitle(false);
+  }, [activeConversationMissing]);
+
+  function beginActiveTitleRename() {
+    if (!activeConversation || !onRenameConversation) return;
+    titleEditClosedRef.current = false;
+    setActiveTitleDraft(activeConversation.title ?? '');
+    setEditingActiveTitle(true);
+  }
+
+  function commitActiveTitleRename() {
+    if (titleEditClosedRef.current) return;
+    titleEditClosedRef.current = true;
+    if (activeConversation && onRenameConversation) {
+      const nextTitle = normalizeConversationRename(
+        activeConversation.title,
+        activeTitleDraft,
+      );
+      if (nextTitle !== null) {
+        onRenameConversation(activeConversation.id, nextTitle);
+      }
+    }
+    setEditingActiveTitle(false);
+  }
+
+  function cancelActiveTitleRename() {
+    titleEditClosedRef.current = true;
+    setActiveTitleDraft(activeConversation?.title ?? '');
+    setEditingActiveTitle(false);
+  }
 
   function jumpToBottom() {
     const el = logRef.current;
@@ -662,6 +751,49 @@ export function ChatPane({
   return (
     <div className="pane">
       <div className="chat-header">
+        <div className="chat-active-conversation">
+          {editingActiveTitle && activeConversation && onRenameConversation ? (
+            <input
+              autoFocus
+              className="chat-active-conversation-input"
+              data-testid="chat-active-conversation-rename-input"
+              aria-label={activeConversationRenameLabel}
+              value={activeTitleDraft}
+              onChange={(e) => setActiveTitleDraft(e.target.value)}
+              onBlur={commitActiveTitleRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitActiveTitleRename();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelActiveTitleRename();
+                }
+              }}
+            />
+          ) : (
+            <>
+              <span
+                className="chat-active-conversation-title"
+                data-testid="chat-active-conversation-title"
+                title={activeConversationTitle}
+              >
+                {activeConversationTitle}
+              </span>
+              {activeConversation && onRenameConversation ? (
+                <button
+                  type="button"
+                  className="chat-active-conversation-rename"
+                  aria-label={activeConversationRenameLabel}
+                  title={t('common.rename')}
+                  onClick={beginActiveTitleRename}
+                >
+                  <Icon name="pencil" size={13} />
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
         <div className="chat-header-actions">
           <div
             className={`chat-history-wrap${showConvList ? ' open' : ''}`}
@@ -929,6 +1061,7 @@ export function ChatPane({
             streaming={streaming}
             dismissedKey={dismissedPinnedTodoKey}
             onDismiss={setDismissedPinnedTodoKey}
+            containerRef={pinnedTodoRef}
           />
           <ChatComposer
             ref={composerRef}
@@ -981,11 +1114,13 @@ function PinnedTodoSlot({
   streaming,
   dismissedKey,
   onDismiss,
+  containerRef,
 }: {
   messages: ChatMessage[];
   streaming: boolean;
   dismissedKey: string | null;
   onDismiss: (key: string | null) => void;
+  containerRef?: MutableRefObject<HTMLDivElement | null>;
 }) {
   // `exiting` lets the dismiss click play a slide-down transition before
   // the slot tears down. Without it React would unmount immediately and
@@ -1001,7 +1136,7 @@ function PinnedTodoSlot({
   }
   if (snapshotKey === dismissedKey) return null;
   return (
-    <div className={`chat-pinned-todo${exiting ? ' chat-pinned-todo-exit' : ''}`}>
+    <div className={`chat-pinned-todo${exiting ? ' chat-pinned-todo-exit' : ''}`} ref={containerRef}>
       <TodoCard
         input={input}
         runStreaming={streaming}
@@ -1171,8 +1306,35 @@ function ConversationRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title ?? '');
+  const titleEditClosedRef = useRef(false);
   const displayTitle =
     conversation.title || t('chat.untitledConversation');
+
+  function beginConversationRename() {
+    if (!onRename) return;
+    titleEditClosedRef.current = false;
+    setDraft(conversation.title ?? '');
+    setEditing(true);
+  }
+
+  function commitConversationRename() {
+    if (titleEditClosedRef.current) return;
+    titleEditClosedRef.current = true;
+    if (onRename) {
+      const nextTitle = normalizeConversationRename(conversation.title, draft);
+      if (nextTitle !== null) {
+        onRename(conversation.id, nextTitle);
+      }
+    }
+    setEditing(false);
+  }
+
+  function cancelConversationRename() {
+    titleEditClosedRef.current = true;
+    setDraft(conversation.title ?? '');
+    setEditing(false);
+  }
+
   return (
     <div
       className={`chat-conv-item${active ? ' active' : ''}`}
@@ -1184,16 +1346,14 @@ function ConversationRow({
           className="chat-conv-rename-input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => {
-            onRename(conversation.id, draft);
-            setEditing(false);
-          }}
+          onBlur={commitConversationRename}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              onRename(conversation.id, draft);
-              setEditing(false);
+              e.preventDefault();
+              commitConversationRename();
             } else if (e.key === 'Escape') {
-              setEditing(false);
+              e.preventDefault();
+              cancelConversationRename();
             }
           }}
           style={{ flex: 1, padding: '2px 6px', fontSize: 12 }}
@@ -1205,11 +1365,7 @@ function ConversationRow({
           data-testid={`conversation-select-${conversation.id}`}
           style={{ background: 'transparent', border: 'none', padding: 0, textAlign: 'left' }}
           onClick={onSelect}
-          onDoubleClick={() => {
-            if (!onRename) return;
-            setDraft(conversation.title ?? '');
-            setEditing(true);
-          }}
+          onDoubleClick={beginConversationRename}
         >
           {displayTitle}
         </button>
@@ -1233,6 +1389,15 @@ function ConversationRow({
       </button>
     </div>
   );
+}
+
+function normalizeConversationRename(
+  currentTitle: string | null | undefined,
+  draft: string,
+): string | null {
+  const current = (currentTitle ?? '').trim();
+  const next = draft.trim();
+  return next === current ? null : next;
 }
 
 function UserMessage({

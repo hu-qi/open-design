@@ -2138,6 +2138,9 @@ export function ProjectView({
         }
       }
 
+      // Snapshot the file list at turn-start so we can diff after the
+      // agent finishes and surface anything new (e.g. a generated .pptx)
+      // as download chips on the assistant message.
       const beforeFileNames = new Set(preTurnFileNames);
 
       const parser = createArtifactParser();
