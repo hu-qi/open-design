@@ -28,22 +28,17 @@ concurrency:
   group: agent-pr-explore-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Only internal same-repo PRs should create an environment approval
-# prompt. This deliberately excludes fork-origin PRs even when the
-# author is an org member, because forked pull_request runs do not get
-# repository/environment secrets. The pre-agent shell guard below is
-# kept as a defensive assertion, but this workflow-level condition is
-# the load-bearing reviewer-noise and secret-availability guard.
+# Only same-repo PRs should create an environment approval prompt.
+# Same-repo PR branches require repository write/collaborator access and
+# receive repository/environment secrets after approval. This
+# deliberately excludes fork-origin PRs even when the author is an org
+# member, because forked pull_request runs do not get those secrets. The
+# pre-agent shell guard below is kept as a defensive assertion, but this
+# workflow-level condition is the load-bearing reviewer-noise and
+# secret-availability guard.
 if: >-
   github.event_name != 'pull_request' ||
-  (
-    github.event.pull_request.head.repo.full_name == github.repository &&
-    (
-      github.event.pull_request.author_association == 'OWNER' ||
-      github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.author_association == 'COLLABORATOR'
-    )
-  )
+  github.event.pull_request.head.repo.full_name == github.repository
 
 # Read-only at workflow level; writes happen only in the safe_outputs
 # job that gh-aw scopes separately.
@@ -99,12 +94,11 @@ pre-agent-steps:
       ref: ${{ github.event.pull_request.head.sha }}
       fetch-depth: 0
 
-  - name: Fail-fast on ineligible PR origin
+  - name: Fail-fast on fork-origin PR
     shell: bash
     env:
       HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
       BASE_REPO: ${{ github.repository }}
-      AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
     run: |
       if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
         echo "::error::Fork-origin PR detected ($HEAD_REPO != $BASE_REPO)."
@@ -113,16 +107,6 @@ pre-agent-steps:
         echo "see spec § Scope → Note on external / fork PRs."
         exit 1
       fi
-
-      case "$AUTHOR_ASSOCIATION" in
-        OWNER|MEMBER|COLLABORATOR)
-          ;;
-        *)
-          echo "::error::PR author_association '$AUTHOR_ASSOCIATION' is not eligible for v1."
-          echo "Only internal same-repo PRs can run agent-pr-explore."
-          exit 1
-          ;;
-      esac
 
   - name: Detect surface
     id: surface
