@@ -8,12 +8,14 @@ build = "build.rs"
 [workspace]
 members = [
   "crates/launcher-core",
+  "crates/launcher-lifecycle",
   "crates/launcher-platform",
 ]
 resolver = "3"
 
 [dependencies]
 launcher-core = { path = "crates/launcher-core" }
+launcher-lifecycle = { path = "crates/launcher-lifecycle" }
 launcher-platform = { path = "crates/launcher-platform" }
 serde_json = "1.0.145"
 

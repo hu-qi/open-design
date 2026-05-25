@@ -220,10 +220,14 @@ impl PayloadManifest {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct PayloadEntry {
+    #[serde(default)]
     pub args: Vec<String>,
+    #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub executable: String,
 }

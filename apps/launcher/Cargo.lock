@@ -39,10 +39,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "launcher-platform"
+name = "launcher-lifecycle"
 version = "0.1.0"
 dependencies = [
  "launcher-core",
+ "launcher-platform",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "launcher-platform"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
  "thiserror",
 ]
@@ -58,6 +68,7 @@ name = "open-design-launcher"
 version = "0.1.0"
 dependencies = [
  "launcher-core",
+ "launcher-lifecycle",
  "launcher-platform",
  "serde_json",
  "winresource",
