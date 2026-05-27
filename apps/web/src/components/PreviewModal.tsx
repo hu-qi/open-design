@@ -444,6 +444,15 @@ export function PreviewModal({
     return ok;
   }
 
+  function openShareDestination(url: string, pendingWindow?: Window | null) {
+    if (pendingWindow) {
+      pendingWindow.opener = null;
+      pendingWindow.location.href = url;
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
   const showTabs = views.length > 1;
 
   return (
@@ -569,6 +578,8 @@ export function PreviewModal({
                               className={`template-share-platform template-share-platform--${item.platform}`}
                               role="menuitem"
                               href={item.href || undefined}
+                              target={item.href ? '_blank' : undefined}
+                              rel={item.href ? 'noreferrer noopener' : undefined}
                               aria-disabled={item.href ? undefined : 'true'}
                               tabIndex={item.href ? undefined : -1}
                               onClick={(event) => {
@@ -578,11 +589,15 @@ export function PreviewModal({
                                 }
                                 if (item.mode === 'copy-open') {
                                   event.preventDefault();
+                                  const shareWindow = window.open('about:blank', '_blank');
                                   const feedbackKey = `social-${item.platform}`;
                                   void copyPreviewShare(previewShareCopy, feedbackKey).then((ok) => {
-                                    if (!ok || !item.href) return;
+                                    if (!ok || !item.href) {
+                                      shareWindow?.close();
+                                      return;
+                                    }
                                     setTemplateShareOpen(false);
-                                    window.location.href = item.href;
+                                    openShareDestination(item.href, shareWindow);
                                   });
                                   return;
                                 }

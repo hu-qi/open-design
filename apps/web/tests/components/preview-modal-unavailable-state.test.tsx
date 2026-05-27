@@ -134,7 +134,10 @@ describe('PreviewModal unavailable state', () => {
     expect(redditShare.getAttribute('href')).toContain(
       'https://www.reddit.com/submit?',
     );
-    expect(redditShare.getAttribute('target')).toBeNull();
+    expect(redditShare.getAttribute('target')).toBe('_blank');
+    expect(redditShare.getAttribute('rel')).toBe('noreferrer noopener');
+    expect(xShare.getAttribute('target')).toBe('_blank');
+    expect(xShare.getAttribute('rel')).toBe('noreferrer noopener');
     expect(xShare.getAttribute('href')).toContain(
       'url=https%3A%2F%2Fexample.test%2Fmarketplace%2Flanding',
     );
@@ -155,6 +158,61 @@ describe('PreviewModal unavailable state', () => {
     expect(screen.getByRole('menuitem', { name: /小红书/i }).getAttribute('href')).toBe(
       'https://www.xiaohongshu.com/',
     );
+  });
+
+  it('keeps the current session open when launching copy-first social destinations', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const openedWindow = {
+      opener: window,
+      location: { href: 'about:blank' },
+      close: vi.fn(),
+    };
+    const open = vi.fn().mockReturnValue(openedWindow);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    Object.defineProperty(window, 'open', {
+      configurable: true,
+      value: open,
+    });
+
+    try {
+      render(
+        <PreviewModal
+          {...baseProps}
+          views={[
+            {
+              id: 'preview',
+              label: 'Preview',
+              html: '<!doctype html><p>Hello</p>',
+            },
+          ]}
+          shareTarget={{
+            title: 'Landing Template',
+            url: 'https://example.test/marketplace/landing',
+          }}
+          onView={() => {}}
+          onClose={() => {}}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /share/i }));
+      fireEvent.click(screen.getByRole('menuitem', { name: /Instagram/i }));
+
+      await waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith(
+          'Open Design template: Landing Template\nhttps://example.test/marketplace/landing',
+        );
+        expect(openedWindow.location.href).toBe('https://www.instagram.com/');
+      });
+      expect(open).toHaveBeenCalledWith('about:blank', '_blank');
+      expect(openedWindow.opener).toBeNull();
+      expect(openedWindow.close).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+      Reflect.deleteProperty(window, 'open');
+    }
   });
 
   it('shows copied feedback when clipboard permissions require the fallback path', async () => {
