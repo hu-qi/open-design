@@ -73,19 +73,24 @@ case "$AGENT" in
     printf '%s' "$PROMPT" | "$real_bin" run >"$real_out" 2>&1 || true ;;
 esac
 
-# 2. Mock CLI (PATH-overlay)
+# 2. Mock CLI — same prompt, PATH-overlayed to the mock bin.
+# `bash -c` here would lose $PROMPT (parent shell var, not exported)
+# and silently send an empty string to the mock — defeating the
+# "same input on both sides" property the rest of the script relies on.
+# A subshell scopes the PATH override locally, no var-passing dance.
 echo "→ invoking mock $AGENT…"
-case "$AGENT" in
-  claude)
-    PATH="$MOCKS_DIR/bin:$PATH" OD_MOCKS_NO_DELAY=1 \
-      bash -c "printf '%s' \"\$PROMPT\" | claude -p --output-format=stream-json --verbose >'$mock_out' 2>&1" || true ;;
-  codex)
-    PATH="$MOCKS_DIR/bin:$PATH" OD_MOCKS_NO_DELAY=1 \
-      bash -c "printf '%s' \"\$PROMPT\" | codex exec >'$mock_out' 2>&1" || true ;;
-  opencode)
-    PATH="$MOCKS_DIR/bin:$PATH" OD_MOCKS_NO_DELAY=1 \
-      bash -c "printf '%s' \"\$PROMPT\" | opencode run >'$mock_out' 2>&1" || true ;;
-esac
+(
+  export PATH="$MOCKS_DIR/bin:$PATH"
+  export OD_MOCKS_NO_DELAY=1
+  case "$AGENT" in
+    claude)
+      printf '%s' "$PROMPT" | claude -p --output-format=stream-json --verbose >"$mock_out" 2>&1 ;;
+    codex)
+      printf '%s' "$PROMPT" | codex exec >"$mock_out" 2>&1 ;;
+    opencode)
+      printf '%s' "$PROMPT" | opencode run >"$mock_out" 2>&1 ;;
+  esac
+) || true
 
 # 3. Compare top-level event `type` distributions (skip content)
 summarize() {
