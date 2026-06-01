@@ -19,6 +19,8 @@
 import { randomUUID } from 'node:crypto';
 
 import type { TelemetryPrefs } from './app-config.js';
+import type { RunTimingAnalytics } from './run-analytics-observability.js';
+import type { RunFailureClassification } from './run-failure-classification.js';
 
 // Langfuse US region: confirmed by an end-to-end smoke on 2026-05-07 — the
 // project's keys authenticate against `us.cloud.langfuse.com` only. EU host
@@ -61,6 +63,9 @@ export interface RunSummary {
   startedAt: number;
   endedAt: number;
   error?: string;
+  errorCode?: string;
+  failure?: RunFailureClassification;
+  timings?: RunTimingAnalytics;
 }
 
 export interface MessageSummary {
@@ -69,8 +74,16 @@ export interface MessageSummary {
   output: string;
   usage?: {
     inputTokens?: number;
+    inputTokensProvider?: number;
+    inputTokensEffective?: number;
     outputTokens?: number;
     totalTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    uncachedInputTokens?: number;
+    estimatedContextTokens?: number;
+    cacheHitRatio?: number;
+    cacheTokenSource?: 'anthropic' | 'openai' | 'unavailable';
   };
 }
 
@@ -297,14 +310,22 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
   const tokens = ctx.message.usage
     ? {
         input: ctx.message.usage.inputTokens,
+        inputProvider: ctx.message.usage.inputTokensProvider,
+        inputEffective: ctx.message.usage.inputTokensEffective,
         output: ctx.message.usage.outputTokens,
         total: ctx.message.usage.totalTokens,
+        cacheReadInput: ctx.message.usage.cacheReadInputTokens,
+        cacheCreationInput: ctx.message.usage.cacheCreationInputTokens,
+        uncachedInput: ctx.message.usage.uncachedInputTokens,
+        estimatedContext: ctx.message.usage.estimatedContextTokens,
+        cacheHitRatio: ctx.message.usage.cacheHitRatio,
+        cacheTokenSource: ctx.message.usage.cacheTokenSource,
       }
     : undefined;
 
   const usage = ctx.message.usage
     ? {
-        input: ctx.message.usage.inputTokens,
+        input: ctx.message.usage.inputTokensEffective ?? ctx.message.usage.inputTokens,
         output: ctx.message.usage.outputTokens,
         total: ctx.message.usage.totalTokens,
         unit: 'TOKENS' as const,
@@ -324,6 +345,10 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
     success,
     status: ctx.run.status,
     error: ctx.run.error ?? undefined,
+    error_code: ctx.run.errorCode,
+    langfuse_trace_id: traceId,
+    ...(ctx.run.failure ?? {}),
+    ...(ctx.run.timings ?? {}),
     eventsSummary: ctx.eventsSummary,
     tokens,
     artifacts: artifactsList,

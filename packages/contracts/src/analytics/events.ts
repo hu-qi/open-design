@@ -184,6 +184,38 @@ export type TrackingResult = 'success' | 'failed';
 export type TrackingRunResult = 'success' | 'failed' | 'cancelled';
 export type TrackingExportResult = 'success' | 'failed' | 'cancelled';
 export type TrackingTestResult = 'success' | 'failed' | 'timeout';
+export type TrackingRunFailureCategory =
+  | 'auth'
+  | 'rate_limit'
+  | 'insufficient_balance'
+  | 'model_unavailable'
+  | 'prompt_too_large'
+  | 'upstream_unavailable'
+  | 'timeout'
+  | 'empty_output'
+  | 'tool_error'
+  | 'process_exit'
+  | 'user_cancel'
+  | 'unknown';
+export type TrackingRunFailureStage =
+  | 'preflight'
+  | 'spawn'
+  | 'session_init'
+  | 'model_select'
+  | 'prompt_send'
+  | 'first_token_wait'
+  | 'tool_execution'
+  | 'artifact_write'
+  | 'child_close'
+  | 'finalize';
+export type TrackingRunFailureUserAction =
+  | 'retry'
+  | 'login'
+  | 'recharge'
+  | 'switch_model'
+  | 'reduce_context'
+  | 'install_cli'
+  | 'none';
 
 export type TrackingFeedbackRating = 'positive' | 'negative';
 // Click events emit `none` when the user clears a previously-set rating, so
@@ -1756,12 +1788,32 @@ export interface RunFinishedProps extends Omit<RunCreatedProps, 'area'> {
   area: 'chat_panel' | 'design_system_generation';
   result: TrackingRunResult;
   error_code?: string;
+  failure_category?: TrackingRunFailureCategory;
+  failure_stage?: TrackingRunFailureStage;
+  retryable?: boolean;
+  user_action?: TrackingRunFailureUserAction;
+  langfuse_trace_id?: string;
   artifact_count: number;
   input_tokens?: number;
+  input_tokens_provider?: number;
+  input_tokens_effective?: number;
   output_tokens?: number;
   total_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  uncached_input_tokens?: number;
+  estimated_context_tokens?: number;
+  cache_hit_ratio?: number;
+  cache_token_source?: 'anthropic' | 'openai' | 'unavailable';
+  queue_duration_ms?: number;
+  pre_spawn_duration_ms?: number;
+  process_spawn_duration_ms?: number;
   time_to_first_token_ms?: number;
+  spawn_to_first_token_ms?: number;
   generation_duration_ms?: number;
+  tool_call_count?: number;
+  tool_duration_ms?: number;
+  finalize_duration_ms?: number;
   total_duration_ms: number;
   // DS-variant outcome fields. `design_system_created` is true when
   // the run produced a stored DESIGN.md; `preview_module_count` and

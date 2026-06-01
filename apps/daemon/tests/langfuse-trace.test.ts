@@ -31,8 +31,16 @@ function makeCtx(overrides: Partial<ReportContext> = {}): ReportContext {
       output: 'Here is a landing page draft …',
       usage: {
         inputTokens: 1234,
+        inputTokensProvider: 1234,
+        inputTokensEffective: 1484,
         outputTokens: 567,
-        totalTokens: 1801,
+        totalTokens: 2051,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 50,
+        uncachedInputTokens: 1234,
+        estimatedContextTokens: 1350,
+        cacheHitRatio: 0.1347708894878706,
+        cacheTokenSource: 'anthropic',
       },
     },
     artifacts: [],
@@ -333,13 +341,21 @@ describe('buildTracePayload', () => {
     const gen = bodyOf(batch, 'generation-create', 'llm');
     expect(trace.metadata.tokens).toEqual({
       input: 1234,
+      inputProvider: 1234,
+      inputEffective: 1484,
       output: 567,
-      total: 1801,
+      total: 2051,
+      cacheReadInput: 200,
+      cacheCreationInput: 50,
+      uncachedInput: 1234,
+      estimatedContext: 1350,
+      cacheHitRatio: 0.1347708894878706,
+      cacheTokenSource: 'anthropic',
     });
     expect(gen.usage).toEqual({
-      input: 1234,
+      input: 1484,
       output: 567,
-      total: 1801,
+      total: 2051,
       unit: 'TOKENS',
     });
   });
@@ -470,6 +486,65 @@ describe('buildTracePayload', () => {
     expect(bodyOf(batch, 'event-create', 'run-error').statusMessage).toBe('boom');
     expect((batch[0] as any).body.metadata.error).toBe('boom');
     expect((batch[0] as any).body.metadata.success).toBe(false);
+  });
+
+  it('mirrors structured failure fields into trace metadata', () => {
+    const batch = buildTracePayload(
+      makeCtx({
+        run: {
+          runId: 'run-rate-limit',
+          status: 'failed',
+          startedAt: 1,
+          endedAt: 2,
+          error: 'session limit reached',
+          errorCode: 'RATE_LIMITED',
+          failure: {
+            failure_category: 'rate_limit',
+            failure_stage: 'session_init',
+            retryable: false,
+            user_action: 'none',
+          },
+        },
+      }),
+    );
+    const metadata = (batch[0] as any).body.metadata;
+    expect(metadata.error_code).toBe('RATE_LIMITED');
+    expect(metadata.langfuse_trace_id).toBe('run-rate-limit');
+    expect(metadata.failure_category).toBe('rate_limit');
+    expect(metadata.failure_stage).toBe('session_init');
+    expect(metadata.retryable).toBe(false);
+    expect(metadata.user_action).toBe('none');
+  });
+
+  it('mirrors run timing fields into trace metadata', () => {
+    const batch = buildTracePayload(
+      makeCtx({
+        run: {
+          runId: 'run-timing',
+          status: 'succeeded',
+          startedAt: 1,
+          endedAt: 2,
+          timings: {
+            queue_duration_ms: 10,
+            pre_spawn_duration_ms: 20,
+            process_spawn_duration_ms: 30,
+            time_to_first_token_ms: 40,
+            spawn_to_first_token_ms: 50,
+            generation_duration_ms: 60,
+            tool_call_count: 2,
+            tool_duration_ms: 70,
+            finalize_duration_ms: 5,
+            total_duration_ms: 100,
+          },
+        },
+      }),
+    );
+    const metadata = (batch[0] as any).body.metadata;
+    expect(metadata.queue_duration_ms).toBe(10);
+    expect(metadata.process_spawn_duration_ms).toBe(30);
+    expect(metadata.time_to_first_token_ms).toBe(40);
+    expect(metadata.tool_call_count).toBe(2);
+    expect(metadata.total_duration_ms).toBe(100);
   });
 
   it('passes through anonymous installationId as userId', () => {

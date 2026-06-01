@@ -237,6 +237,11 @@ import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
+import { classifyRunFailure } from './run-failure-classification.js';
+import {
+  scanRunEventsForUsageAnalytics,
+  summarizeRunTimingAnalytics,
+} from './run-analytics-observability.js';
 import {
   countDesignSystemPreviewModules,
   countNewHtmlArtifacts,
@@ -2011,39 +2016,12 @@ export function __forTestResolveRunProjectKindForAnalytics(args) {
 // usage tokens are found AND (the caller already has a model from reqBody
 // OR the agent-reported model has been found).
 function scanRunEventsForFinishedProps(events, reqBodyModel) {
-  let inputTokens;
-  let outputTokens;
-  let agentReportedModel = null;
-  const needAgentModel = !(typeof reqBodyModel === 'string' && reqBodyModel.trim());
-  let haveUsageTokens = false;
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const ev = events[i];
-    const data = ev?.data;
-    if (ev?.event === 'agent' && data?.type === 'usage' && data.usage && !haveUsageTokens) {
-      const u = data.usage;
-      if (typeof u.input_tokens === 'number') inputTokens = u.input_tokens;
-      if (typeof u.output_tokens === 'number') outputTokens = u.output_tokens;
-      if (inputTokens !== undefined || outputTokens !== undefined) haveUsageTokens = true;
-    }
-    if (
-      !agentReportedModel &&
-      ev?.event === 'agent' &&
-      data?.type === 'status' &&
-      (data.label === 'model' || data.label === 'initializing')
-    ) {
-      const candidate =
-        typeof data.model === 'string'
-          ? data.model
-          : typeof data.detail === 'string'
-            ? data.detail
-            : null;
-      if (candidate && candidate.trim()) {
-        agentReportedModel = candidate.trim();
-      }
-    }
-    if (haveUsageTokens && (!needAgentModel || agentReportedModel)) break;
-  }
-  return { inputTokens, outputTokens, agentReportedModel };
+  const usage = scanRunEventsForUsageAnalytics(events, reqBodyModel, 0);
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    agentReportedModel: usage.agent_reported_model,
+  };
 }
 
 export function __forTestScanRunEventsForFinishedProps(events, reqBodyModel) {
@@ -10700,6 +10678,10 @@ export async function startServer({
   };
 
   const startChatRun = async (chatBody, run) => {
+    run.analyticsTelemetry = {
+      ...(run.analyticsTelemetry ?? {}),
+      startChatRunStartedAt: Date.now(),
+    };
     /** @type {Partial<ChatRequest> & { imagePaths?: string[] }} */
     chatBody = chatBody || {};
     const {
@@ -11803,6 +11785,10 @@ export async function startServer({
         args,
         env,
       });
+      run.analyticsTelemetry = {
+        ...(run.analyticsTelemetry ?? {}),
+        processSpawnStartedAt: Date.now(),
+      };
       child = spawn(invocation.command, invocation.args, {
         env,
         stdio: [stdinMode, 'pipe', 'pipe'],
@@ -11813,6 +11799,10 @@ export async function startServer({
         // breaks paths containing spaces (issue #315).
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
+      run.analyticsTelemetry = {
+        ...(run.analyticsTelemetry ?? {}),
+        processSpawnedAt: Date.now(),
+      };
       run.child = child;
       // Schedule release of the antigravity model lock once agy's
       // --log-file confirms the chosen model was propagated to the
@@ -12139,6 +12129,23 @@ export async function startServer({
       'tool_result',
       'artifact',
     ]);
+    const FIRST_TOKEN_AGENT_EVENT_TYPES = new Set([
+      'text_delta',
+      'thinking_delta',
+      'tool_use',
+    ]);
+    const noteFirstTokenAt = (timestamp = Date.now()) => {
+      if (run.analyticsTelemetry?.firstTokenAt) return;
+      run.analyticsTelemetry = {
+        ...(run.analyticsTelemetry ?? {}),
+        firstTokenAt: timestamp,
+      };
+    };
+    const noteFirstTokenFromAgentEvent = (ev) => {
+      if (ev?.type && FIRST_TOKEN_AGENT_EVENT_TYPES.has(ev.type)) {
+        noteFirstTokenAt();
+      }
+    };
 
     // Per-run role-marker guard for non-Claude structured streams (#3247).
     // Claude has its own per-message guards in claude-stream.ts.
@@ -12255,6 +12262,7 @@ export async function startServer({
       }
       lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
       noteAgentActivity();
+      noteFirstTokenFromAgentEvent(ev);
       if (ev?.type && SUBSTANTIVE_AGENT_EVENT_TYPES.has(ev.type)) {
         agentProducedOutput = true;
       }
@@ -12270,6 +12278,7 @@ export async function startServer({
       const claude = createClaudeStreamHandler((ev) => {
         lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
         noteAgentActivity();
+        noteFirstTokenFromAgentEvent(ev);
         send('agent', ev);
         // Claude uses per-message guards (claude-stream.ts) rather than the
         // run-scoped guard above, so its `fabricated_role_marker` events
@@ -12338,6 +12347,7 @@ export async function startServer({
       const copilot = createCopilotStreamHandler((ev) => {
         lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
         noteAgentActivity();
+        noteFirstTokenFromAgentEvent(ev);
         if (ev?.type === 'text_delta' && typeof ev.delta === 'string') {
           emitGuardedTextDelta(ev.delta);
           return;
@@ -12400,6 +12410,7 @@ export async function startServer({
         ...(def.id === 'amr' ? { modelUnavailableErrorCode: 'AMR_MODEL_UNAVAILABLE' } : {}),
         send: (event, data) => {
           noteAgentActivity();
+          if (event === 'agent') noteFirstTokenFromAgentEvent(data);
           if (def.id === 'amr' && event === 'error') {
             const failure = classifyAmrAccountFailure(
               [
@@ -12444,6 +12455,7 @@ export async function startServer({
       // detects them as an auth prompt.
       child.stdout.on('data', (chunk) => {
         noteAgentActivity();
+        noteFirstTokenAt();
         plaintextStdoutBuffer.push(String(chunk));
       });
     } else {
@@ -12453,6 +12465,7 @@ export async function startServer({
         const text = typeof chunk === 'string' ? chunk : String(chunk);
         const safe = guardTextDelta(text);
         if (safe.length > 0) {
+          noteFirstTokenAt();
           send('stdout', { chunk: safe });
         }
         if (runGuard.contaminated && !runWarned) {
@@ -13310,7 +13323,6 @@ export async function startServer({
     if (analyticsContext) {
       const reqBody = (req.body || {}) as Record<string, unknown>;
       const runInsertId = newInsertId();
-      const runStartedAt = Date.now();
       // Configure-state triplet — v2 schema requires every event to carry
       // these so PostHog dashboards can split run lifecycle by execution
       // setup. Web-side captures inherit them from a PostHog global
@@ -13494,22 +13506,35 @@ export async function startServer({
         // child close without error event, etc.).
         const result = runResultFromStatus(status.status);
         const errorCode = deriveRunErrorCode(status);
+        const failure = classifyRunFailure({
+          result,
+          status,
+          ...(errorCode ? { errorCode } : {}),
+          agentId: run.agentId,
+          events: run.events,
+        });
         // ACP reports { type:'status', label:'model', model:<id> } after
         // session/new; stream adapters report { type:'status',
         // label:'initializing', model:<id> } at run start. The scan must
         // not short-circuit on usage before reaching the model signal —
         // see `scanRunEventsForFinishedProps` for the invariant.
-        const { inputTokens, outputTokens, agentReportedModel } =
-          scanRunEventsForFinishedProps(run.events, reqBody.model);
-        const haveUsage = inputTokens !== undefined || outputTokens !== undefined;
-        const totalTokens =
-          inputTokens !== undefined && outputTokens !== undefined
-            ? inputTokens + outputTokens
-            : undefined;
+        const usageAnalytics = scanRunEventsForUsageAnalytics(
+          run.events,
+          reqBody.model,
+          userQueryTokens,
+        );
+        const analyticsCapturedAt = Date.now();
+        const timingAnalytics = summarizeRunTimingAnalytics({
+          runCreatedAt: run.createdAt,
+          runUpdatedAt: run.updatedAt,
+          analyticsCapturedAt,
+          telemetry: run.analyticsTelemetry,
+          events: run.events,
+        });
         const finishedModelId =
           typeof reqBody.model === 'string' && reqBody.model.trim()
             ? modelIdForTracking(reqBody.model)
-            : modelIdForTracking(agentReportedModel);
+            : modelIdForTracking(usageAnalytics.agent_reported_model);
         design.analytics.capture({
           eventName: 'run_finished',
           context: analyticsContext,
@@ -13545,12 +13570,45 @@ export async function startServer({
               // day one; can be sourced later from a font-audit hook.
               missing_font_count: 0,
             } : {}),
-            total_duration_ms: Date.now() - runStartedAt,
+            ...timingAnalytics,
+            langfuse_trace_id: run.id,
             ...(errorCode ? { error_code: errorCode } : {}),
-            ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
-            ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
-            ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
-            ...(haveUsage ? { token_count_source: 'provider_usage' } : {}),
+            ...(failure ?? {}),
+            ...(usageAnalytics.input_tokens !== undefined
+              ? { input_tokens: usageAnalytics.input_tokens }
+              : {}),
+            ...(usageAnalytics.input_tokens_provider !== undefined
+              ? { input_tokens_provider: usageAnalytics.input_tokens_provider }
+              : {}),
+            ...(usageAnalytics.input_tokens_effective !== undefined
+              ? { input_tokens_effective: usageAnalytics.input_tokens_effective }
+              : {}),
+            ...(usageAnalytics.output_tokens !== undefined
+              ? { output_tokens: usageAnalytics.output_tokens }
+              : {}),
+            ...(usageAnalytics.total_tokens !== undefined
+              ? { total_tokens: usageAnalytics.total_tokens }
+              : {}),
+            ...(usageAnalytics.cache_read_input_tokens !== undefined
+              ? { cache_read_input_tokens: usageAnalytics.cache_read_input_tokens }
+              : {}),
+            ...(usageAnalytics.cache_creation_input_tokens !== undefined
+              ? {
+                  cache_creation_input_tokens:
+                    usageAnalytics.cache_creation_input_tokens,
+                }
+              : {}),
+            ...(usageAnalytics.uncached_input_tokens !== undefined
+              ? { uncached_input_tokens: usageAnalytics.uncached_input_tokens }
+              : {}),
+            ...(usageAnalytics.estimated_context_tokens !== undefined
+              ? { estimated_context_tokens: usageAnalytics.estimated_context_tokens }
+              : {}),
+            ...(usageAnalytics.cache_hit_ratio !== undefined
+              ? { cache_hit_ratio: usageAnalytics.cache_hit_ratio }
+              : {}),
+            cache_token_source: usageAnalytics.cache_token_source,
+            token_count_source: usageAnalytics.token_count_source,
           },
           insertId: `${runInsertId}-finish`,
         });

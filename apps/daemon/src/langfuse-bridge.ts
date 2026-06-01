@@ -27,6 +27,13 @@ import {
   type TurnInfo,
 } from './langfuse-trace.js';
 import { redactSecrets } from './redact.js';
+import {
+  scanRunEventsForUsageAnalytics,
+  summarizeRunTimingAnalytics,
+  type RunTelemetryTimestamps,
+} from './run-analytics-observability.js';
+import { classifyRunFailure } from './run-failure-classification.js';
+import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
 
 interface DaemonRunRecord {
   id: string;
@@ -35,6 +42,11 @@ interface DaemonRunRecord {
   assistantMessageId: string | null;
   agentId: string | null;
   status: string;
+  exitCode?: number | null;
+  signal?: string | null;
+  error?: string | null;
+  errorCode?: string | null;
+  analyticsTelemetry?: RunTelemetryTimestamps | null;
   createdAt: number;
   updatedAt: number;
   events: Array<{
@@ -117,34 +129,44 @@ function summarizeEvents(
 
 function findUsage(
   events: DaemonRunRecord['events'],
+  reqBodyModel: unknown,
+  userQueryTokens: number,
 ): MessageSummary['usage'] | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const rec = events[i]!;
-    const data = rec.data as
-      | { type?: string; usage?: Record<string, unknown> | null }
-      | null
-      | undefined;
-    if (rec.event === 'agent' && data?.type === 'usage' && data.usage) {
-      const u = data.usage;
-      const inputTokens =
-        typeof u.input_tokens === 'number' ? u.input_tokens : undefined;
-      const outputTokens =
-        typeof u.output_tokens === 'number' ? u.output_tokens : undefined;
-      if (inputTokens === undefined && outputTokens === undefined) {
-        return undefined;
-      }
-      const totalTokens =
-        typeof inputTokens === 'number' && typeof outputTokens === 'number'
-          ? inputTokens + outputTokens
-          : undefined;
-      const out: NonNullable<MessageSummary['usage']> = {};
-      if (inputTokens !== undefined) out.inputTokens = inputTokens;
-      if (outputTokens !== undefined) out.outputTokens = outputTokens;
-      if (totalTokens !== undefined) out.totalTokens = totalTokens;
-      return out;
-    }
+  const usage = scanRunEventsForUsageAnalytics(
+    events,
+    reqBodyModel,
+    userQueryTokens,
+  );
+  if (usage.input_tokens === undefined && usage.output_tokens === undefined) {
+    return undefined;
   }
-  return undefined;
+  const out: NonNullable<MessageSummary['usage']> = {};
+  if (usage.input_tokens !== undefined) out.inputTokens = usage.input_tokens;
+  if (usage.input_tokens_provider !== undefined) {
+    out.inputTokensProvider = usage.input_tokens_provider;
+  }
+  if (usage.input_tokens_effective !== undefined) {
+    out.inputTokensEffective = usage.input_tokens_effective;
+  }
+  if (usage.output_tokens !== undefined) out.outputTokens = usage.output_tokens;
+  if (usage.total_tokens !== undefined) out.totalTokens = usage.total_tokens;
+  if (usage.cache_read_input_tokens !== undefined) {
+    out.cacheReadInputTokens = usage.cache_read_input_tokens;
+  }
+  if (usage.cache_creation_input_tokens !== undefined) {
+    out.cacheCreationInputTokens = usage.cache_creation_input_tokens;
+  }
+  if (usage.uncached_input_tokens !== undefined) {
+    out.uncachedInputTokens = usage.uncached_input_tokens;
+  }
+  if (usage.estimated_context_tokens !== undefined) {
+    out.estimatedContextTokens = usage.estimated_context_tokens;
+  }
+  if (usage.cache_hit_ratio !== undefined) {
+    out.cacheHitRatio = usage.cache_hit_ratio;
+  }
+  out.cacheTokenSource = usage.cache_token_source;
+  return out;
 }
 
 function eventTimestamp(
@@ -315,8 +337,39 @@ export async function reportRunCompletedFromDaemon(
     const durationMs = Math.max(0, endedAt - startedAt);
     const status = normalizeStatus(opts.persistedRunStatus ?? run.status);
 
-    const usage = findUsage(run.events);
+    const telemetryPrompt =
+      typeof run.userPrompt === 'string' ? run.userPrompt : '';
+    const userQueryTokens =
+      telemetryPrompt.length > 0 ? Math.ceil(telemetryPrompt.length / 4) : 0;
+    const usage = findUsage(run.events, run.model, userQueryTokens);
     const error = pickRunError(run, status);
+    const errorCode = deriveRunErrorCode({
+      status,
+      errorCode: run.errorCode ?? null,
+      exitCode: run.exitCode ?? null,
+      signal: run.signal ?? null,
+    });
+    const result = runResultFromStatus(status);
+    const failure = classifyRunFailure({
+      result,
+      status: {
+        status,
+        error: run.error ?? error ?? null,
+        errorCode: run.errorCode ?? null,
+        exitCode: run.exitCode ?? null,
+        signal: run.signal ?? null,
+      },
+      ...(errorCode ? { errorCode } : {}),
+      agentId: run.agentId,
+      events: run.events,
+    });
+    const timings = summarizeRunTimingAnalytics({
+      runCreatedAt: run.createdAt,
+      runUpdatedAt: run.updatedAt,
+      analyticsCapturedAt: Date.now(),
+      telemetry: run.analyticsTelemetry ?? null,
+      events: run.events,
+    });
     const turn = turnInfoFromRun(run);
     const runtime: RuntimeInfo = {
       ...getRuntimeInfo(opts.appVersion ?? null),
@@ -333,6 +386,9 @@ export async function reportRunCompletedFromDaemon(
         startedAt,
         endedAt,
         ...(error ? { error } : {}),
+        ...(errorCode ? { errorCode } : {}),
+        ...(failure ? { failure } : {}),
+        timings,
       },
       message: {
         messageId: run.assistantMessageId ?? '',
@@ -340,7 +396,7 @@ export async function reportRunCompletedFromDaemon(
         // / IPs / Luhn-valid credit cards in the prompt and assistant
         // text. See `redact.ts` for the full pattern set; the user-facing
         // privacy copy enumerates the same categories.
-        prompt: redactSecrets(typeof run.userPrompt === 'string' ? run.userPrompt : ''),
+        prompt: redactSecrets(telemetryPrompt),
         output: redactSecrets(messageContent),
         ...(usage ? { usage } : {}),
       },
