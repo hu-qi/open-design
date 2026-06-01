@@ -195,6 +195,49 @@ describe('packaged child Vite+ environment forwarding', () => {
     expect(env.NODE_USE_ENV_PROXY).toBeUndefined();
   });
 
+  it('forwards AMR runtime env to the packaged daemon without opening broad passthrough', () => {
+    const env = resolvePackagedChildBaseEnv(
+      {
+        HOME: '/Users/tester',
+        OPEN_DESIGN_AMR_PROFILE: 'local',
+        RANDOM_INTERNAL_FLAG: 'drop-me',
+        VELA_LINK_URL: 'https://amr-link.open-design.ai/v1',
+        VELA_RUNTIME_KEY: 'rt-secret',
+      },
+      true,
+      {},
+      false,
+      true,
+    );
+
+    expect(env).toMatchObject({
+      HOME: '/Users/tester',
+      OPEN_DESIGN_AMR_PROFILE: 'local',
+      VELA_LINK_URL: 'https://amr-link.open-design.ai/v1',
+      VELA_RUNTIME_KEY: 'rt-secret',
+    });
+    expect(env.RANDOM_INTERNAL_FLAG).toBeUndefined();
+  });
+
+  it('does not forward AMR runtime env unless the packaged daemon path opts in', () => {
+    const env = resolvePackagedChildBaseEnv(
+      {
+        HOME: '/Users/tester',
+        OPEN_DESIGN_AMR_PROFILE: 'local',
+        VELA_LINK_URL: 'https://amr-link.open-design.ai/v1',
+        VELA_RUNTIME_KEY: 'rt-secret',
+      },
+      true,
+      {},
+      false,
+    );
+
+    expect(env.HOME).toBe('/Users/tester');
+    expect(env.OPEN_DESIGN_AMR_PROFILE).toBeUndefined();
+    expect(env.VELA_LINK_URL).toBeUndefined();
+    expect(env.VELA_RUNTIME_KEY).toBeUndefined();
+  });
+
   it('adds custom VP_HOME/bin to the packaged PATH builder', () => {
     const vpHome = mkdtempSync(join(tmpdir(), 'od-packaged-vp-home-'));
     const originalVpHome = process.env.VP_HOME;

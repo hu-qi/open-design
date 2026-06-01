@@ -53,12 +53,26 @@ const PACKAGED_CHILD_ENV_ALLOWLIST = [
   "no_proxy",
 ] as const;
 
-function shouldForwardPackagedChildEnv(key: string, includeProviderSecrets = false): boolean {
+const PACKAGED_DAEMON_AMR_ENV_ALLOWLIST = [
+  "VELA_LINK_URL",
+  "VELA_RUNTIME_KEY",
+  "OPEN_DESIGN_AMR_PROFILE",
+] as const;
+
+function shouldForwardPackagedChildEnv(
+  key: string,
+  includeProviderSecrets = false,
+  includeAmrRuntimeEnv = false,
+): boolean {
   return (
     PACKAGED_CHILD_ENV_ALLOWLIST.includes(
       key as (typeof PACKAGED_CHILD_ENV_ALLOWLIST)[number],
     ) ||
-    (includeProviderSecrets && (key.endsWith("_API_KEY") || key.endsWith("_TOKEN")))
+    (includeProviderSecrets && (key.endsWith("_API_KEY") || key.endsWith("_TOKEN"))) ||
+    (includeAmrRuntimeEnv &&
+      PACKAGED_DAEMON_AMR_ENV_ALLOWLIST.includes(
+        key as (typeof PACKAGED_DAEMON_AMR_ENV_ALLOWLIST)[number],
+      ))
   );
 }
 
@@ -254,10 +268,19 @@ export function resolvePackagedChildBaseEnv(
   includeProviderSecrets = false,
   systemProxyEnv: NodeJS.ProcessEnv = resolveSystemProxyEnv(),
   includeSystemProxyEnv = true,
+  includeAmrRuntimeEnv = false,
 ): NodeJS.ProcessEnv {
   const forwardedEnv: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
-    if (value != null && value.length > 0 && shouldForwardPackagedChildEnv(key, includeProviderSecrets)) {
+    if (
+      value != null &&
+      value.length > 0 &&
+      shouldForwardPackagedChildEnv(
+        key,
+        includeProviderSecrets,
+        includeAmrRuntimeEnv,
+      )
+    ) {
       forwardedEnv[key] = value;
     }
   }
@@ -382,6 +405,7 @@ async function spawnSidecarChild(options: {
         options.app === APP_KEYS.DAEMON,
         resolveSystemProxyEnv(),
         options.app !== APP_KEYS.DAEMON,
+        options.app === APP_KEYS.DAEMON,
       ),
       ...options.env,
       NODE_ENV: "production",
