@@ -489,7 +489,7 @@ HKEY_CURRENT_USER\\Environment
     });
 
     expect(env.HTTPS_PROXY).toBe("http://registry-proxy:7890");
-    expect(env.NO_PROXY).toBe("BUILD-WIN-01,localhost,127.0.0.1");
+    expect(env.NO_PROXY).toBe("BUILD-WIN-01,localhost");
     expect(env.NODE_USE_ENV_PROXY).toBe("1");
     expect(userEnvironmentQueryCount).toBe(1);
   });
