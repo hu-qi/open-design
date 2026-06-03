@@ -65,6 +65,52 @@ function getAddressDisplay(container: HTMLElement) {
 }
 
 describe('DesignBrowserPanel <webview> navigation', () => {
+  it('moves Tune and Edit into the Browser menu instead of the top toolbar', () => {
+    render(
+      <DesignBrowserPanel
+        projectId="proj-webview-more-tools"
+        initialTitle="Example"
+        initialUrl="https://example.com"
+        onOpenFile={() => {}}
+        onRefreshFiles={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Tune element' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit live DOM' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browser menu' }));
+
+    expect(screen.getByRole('menuitem', { name: /Tune Element/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /Edit Live DOM/ })).toBeTruthy();
+  });
+
+  it('adds a Browser use operation prompt for the current browser tab', () => {
+    const onRequestBrowserUsePrompt = vi.fn();
+
+    render(
+      <DesignBrowserPanel
+        projectId="proj-webview-browser-use"
+        initialTitle="Example"
+        initialUrl="https://example.com"
+        onOpenFile={() => {}}
+        onRefreshFiles={() => {}}
+        onRequestBrowserUsePrompt={onRequestBrowserUsePrompt}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspiration / Browser use' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /extract_fonts/ }));
+
+    expect(onRequestBrowserUsePrompt).toHaveBeenCalledTimes(1);
+    const prompt = onRequestBrowserUsePrompt.mock.calls[0]?.[0] as string;
+    expect(prompt).toContain('@agent-browser');
+    expect(prompt).toContain('Operation: extract_fonts');
+    expect(prompt).toContain('- title: Example');
+    expect(prompt).toContain('- url: https://example.com');
+    expect(prompt).toContain('browser-use / browser-harness style evidence');
+  });
+
   it('pins the webview src to the load target when the guest commits a redirected URL', () => {
     // Regression guard for the blank-page bug: the embedded <webview> rendered
     // but never painted because did-navigate fed the committed (trailing-slash)

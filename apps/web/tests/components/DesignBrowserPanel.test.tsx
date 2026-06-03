@@ -3,8 +3,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  BROWSER_USE_ACTION_TOTAL,
+  BROWSER_USE_CATEGORIES,
   REFERENCE_GROUPS,
   REFERENCE_TOTAL,
+  browserUseActionById,
+  browserUsePrompt,
   browserFileName,
   faviconUrl,
   filterReferenceGroups,
@@ -88,6 +92,46 @@ describe('normalizeBrowserAddress', () => {
 
   it('passes through an explicit about:blank', () => {
     expect(normalizeBrowserAddress('about:blank')).toBe('about:blank');
+  });
+});
+
+describe('browser use action prompts', () => {
+  it('keeps the Browser use catalogue at the intended 43 actions', () => {
+    expect(BROWSER_USE_ACTION_TOTAL).toBe(43);
+    expect(BROWSER_USE_CATEGORIES.map((category) => category.id)).toEqual([
+      'interact',
+      'assets',
+      'tokens',
+      'motion',
+      'screenshots',
+      'structure',
+      'audit',
+      'terminal',
+    ]);
+    expect(browserUseActionById('extract_fonts')?.output).toContain('typography.json');
+    expect(browserUseActionById('extract_og_metadata')?.output).toContain('OG/Twitter');
+    expect(browserUseActionById('audit_accessibility')?.output).toContain('A11y');
+  });
+
+  it('builds an agent-browser prompt bound to the current browser tab context', () => {
+    const action = browserUseActionById('extract_colors');
+    expect(action).not.toBeNull();
+
+    const prompt = browserUsePrompt(action!, {
+      browserFilePath: 'browser:https://example.com',
+      projectId: 'proj-1',
+      resolvedDir: '/tmp/open-design/project',
+      tabLabel: 'Example landing',
+      title: 'Example',
+      url: 'https://example.com',
+    });
+
+    expect(prompt).toContain('@agent-browser');
+    expect(prompt).toContain('Use the selected Open Design Browser tab as the bound target.');
+    expect(prompt).toContain('- tab: Example landing');
+    expect(prompt).toContain('- url: https://example.com');
+    expect(prompt).toContain('Operation: extract_colors');
+    expect(prompt).toContain('browser-use / browser-harness style evidence');
   });
 });
 
