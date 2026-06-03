@@ -610,13 +610,13 @@ const pageHtml = renderToStaticMarkup(
             reveal();
           };
           const onScroll = () => {
-            if (window.scrollY > window.innerHeight * 0.6) {
+            if (window.scrollY > window.innerHeight * 0.5) {
               window.removeEventListener('scroll', onScroll);
               showOnce();
             }
           };
           window.addEventListener('scroll', onScroll, { passive: true });
-          window.setTimeout(showOnce, 25000);
+          window.setTimeout(showOnce, 10000);
         }
       })();
     </script>
