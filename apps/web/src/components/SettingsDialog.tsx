@@ -29,6 +29,7 @@ import { LOCALE_LABEL, LOCALES, useI18n } from '../i18n';
 import type { Locale } from '../i18n';
 import type { Dict } from '../i18n/types';
 import { AgentIcon } from './AgentIcon';
+import { AgentDiagnosticRow } from './AgentDiagnosticRow';
 import { AmrLoginPill } from './AmrLoginPill';
 import {
   fetchVelaLoginStatus,
@@ -3189,6 +3190,21 @@ export function SettingsDialog({
                                     {description}
                                   </div>
                                 ) : null}
+                                {/* Why is it unavailable? not-on-path vs a
+                                    broken shim vs a bad *_BIN override each get
+                                    a distinct, actionable line instead of a
+                                    silent "Not installed" card. Install/Docs
+                                    stay as the existing links below, so the row
+                                    only contributes the reason + Rescan. */}
+                                {(a.diagnostics ?? []).map((diagnostic, i) => (
+                                  <AgentDiagnosticRow
+                                    key={`${diagnostic.reason}-${i}`}
+                                    diagnostic={diagnostic}
+                                    handlers={{
+                                      onRescan: () => void handleRefreshAgents(),
+                                    }}
+                                  />
+                                ))}
                               </div>
                               {hasLinks ? (
                                 <div className="agent-card-actions agent-card-actions--inline">

@@ -1,0 +1,64 @@
+.root {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.error {
+  border-left-color: var(--danger, #d9534f);
+  background: color-mix(in srgb, var(--danger, #d9534f) 7%, var(--bg-panel));
+}
+
+.warning {
+  border-left-color: var(--warning, #d9a441);
+  background: color-mix(in srgb, var(--warning, #d9a441) 8%, var(--bg-panel));
+}
+
+.info {
+  border-left-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.message {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+}
+
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--accent-strong);
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.action:hover {
+  background: color-mix(in srgb, var(--accent-tint) 70%, var(--accent) 14%);
+  border-color: var(--accent);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
