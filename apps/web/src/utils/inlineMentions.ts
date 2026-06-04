@@ -205,10 +205,31 @@ interface MentionMatch {
 }
 
 /**
+ * Submit-time right boundary for reconciling a *still-visible atomic pill*
+ * against serialized text. Looser than `isMentionRightBoundary`: an atomic
+ * mention pill stays selected even when the user types trailing punctuation
+ * right after it (e.g. `@Slack,` or `@Notion.`), so the character after the
+ * token may also be sentence/clause punctuation that cannot be part of a
+ * mention token (`@[^\s@]+`). Letters, digits, `/`, `-`, etc. still fail,
+ * because those would extend the token into a *different* word the user is
+ * actively typing rather than a closed pill followed by punctuation.
+ *
+ * This intentionally does NOT relax `isMentionRightBoundary`, whose stricter
+ * rule the inline parser and the draft-side tracker depend on.
+ */
+function isMentionSubmitRightBoundary(text: string, end: number): boolean {
+  if (end >= text.length) return true;
+  return /[\s@,.;:!?)\]}"'»”’]/.test(text[end] ?? '');
+}
+
+/**
  * Whether `@label` appears in `text` as a standalone inline mention (proper
- * left/right boundaries, not a substring of a longer word). Used to reconcile
- * selected context (plugins/MCP/connectors) against the prompt at submit time:
- * a context whose mention pill the user deleted should not be sent to the agent.
+ * left boundary, not a substring of a longer word). Used to reconcile selected
+ * context (plugins/MCP/connectors) against the prompt at submit time: a context
+ * whose mention pill the user deleted should not be sent to the agent. Unlike
+ * the parser's `isMentionRightBoundary`, this treats trailing punctuation after
+ * a still-visible pill (e.g. `@Slack,`) as present — see
+ * `isMentionSubmitRightBoundary`.
  */
 export function mentionTokenPresent(text: string, label: string): boolean {
   const token = inlineMentionToken(label);
@@ -217,7 +238,7 @@ export function mentionTokenPresent(text: string, label: string): boolean {
   while (start !== -1) {
     if (
       isMentionBoundary(text, start) &&
-      isMentionRightBoundary(text, start + token.length)
+      isMentionSubmitRightBoundary(text, start + token.length)
     ) {
       return true;
     }

@@ -493,4 +493,63 @@ describe('HomeView context picker', () => {
       ],
     }));
   });
+
+  it('keeps a connector context when the prompt has punctuation right after the pill', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      if (typeof url === 'string' && url === '/api/plugins') {
+        return new Response(JSON.stringify({ plugins: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (typeof url === 'string' && url === '/api/mcp/servers') {
+        return new Response(JSON.stringify({ servers: [], templates: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    const onSubmit = vi.fn();
+
+    render(
+      <HomeView
+        projects={[]}
+        connectors={[CONNECTOR]}
+        onSubmit={onSubmit}
+        onOpenProject={() => undefined}
+        onViewAllProjects={() => undefined}
+      />,
+    );
+
+    await screen.findByTestId('home-hero-input');
+    setHomeHeroPrompt('@sla');
+    fireEvent.mouseDown(screen.getByRole('option', { name: /slack/i }));
+
+    await waitFor(() => {
+      expect(homeHeroPromptText().trim()).toBe('@Slack');
+    });
+
+    // The user types a comma right after the (still-visible) connector pill and
+    // keeps writing — the pill was never deleted, so the connector must still be
+    // sent. Reconciliation must not drop it just because the serialized text is
+    // `@Slack,` rather than `@Slack`.
+    setHomeHeroPrompt('Summarize @Slack, then draft follow-ups');
+    await settle();
+
+    fireEvent.click(screen.getByTestId('home-hero-submit'));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: 'Summarize @Slack, then draft follow-ups',
+      pluginId: DEFAULT_UNSELECTED_SCENARIO_PLUGIN_ID,
+      contextConnectors: [
+        expect.objectContaining({ id: 'slack', name: 'Slack' }),
+      ],
+    }));
+  });
 });
