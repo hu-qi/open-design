@@ -6833,9 +6833,10 @@ export async function startServer({
   // needed for the §12.5 walkthrough: list/get installed plugins, install
   // (SSE), uninstall, apply (returns ApplyResult + snapshotId), atom catalog,
   // and snapshot fetch by id (used by run replay tooling).
-  app.get('/api/plugins', async (_req, res) => {
+  app.get('/api/plugins', async (req, res) => {
     try {
-      const plugins = listVisibleInstalledPlugins(db);
+      const includeHidden = req.query.includeHidden === 'true' || req.query.includeHidden === '1';
+      const plugins = includeHidden ? listInstalledPlugins(db) : listVisibleInstalledPlugins(db);
       res.json({ plugins });
     } catch (err) {
       res.status(500).json({ error: String(err) });

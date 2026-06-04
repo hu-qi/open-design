@@ -52,6 +52,25 @@ describe('GET /api/plugins', () => {
       'public-bundle/deck-skeleton',
     ]);
     expect(bundlePlugins.some((plugin) => plugin.manifest.od?.hidden === true)).toBe(false);
+
+    const internalResp = await fetch(`${baseUrl}/api/plugins?includeHidden=true`);
+    expect(internalResp.status).toBe(200);
+    const internalData = await internalResp.json() as { plugins: InstalledPluginRecord[] };
+    const internalIds = internalData.plugins
+      .filter((plugin) => plugin.id.startsWith('public-bundle'))
+      .map((plugin) => plugin.id)
+      .sort();
+    expect(internalIds).toEqual([
+      'public-bundle',
+      'public-bundle/deck-pacing',
+      'public-bundle/deck-skeleton',
+      'public-bundle/linear-clone',
+    ]);
+    expect(
+      internalData.plugins
+        .filter((plugin) => plugin.id === 'public-bundle/deck-pacing' || plugin.id === 'public-bundle/linear-clone')
+        .every((plugin) => plugin.manifest.od?.hidden === true),
+    ).toBe(true);
   });
 });
 
