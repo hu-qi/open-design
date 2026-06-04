@@ -216,7 +216,11 @@ function Publish-ReleaseReport(
   $reportZipPath = Optional-Env "REPORT_ZIP_PATH" (Join-Path (Split-Path -Parent $ReportRoot) "$ReportDirectory-report.zip")
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reportZipPath) | Out-Null
   Remove-Item -LiteralPath $reportZipPath -Force -ErrorAction SilentlyContinue
-  Compress-Archive -LiteralPath (Join-Path $ReportRoot "*") -DestinationPath $reportZipPath -CompressionLevel Optimal -Force
+  $reportItems = @(Get-ChildItem -LiteralPath $ReportRoot -Force | Select-Object -ExpandProperty FullName)
+  if ($reportItems.Count -eq 0) {
+    throw "cannot create release report zip from empty directory: $ReportRoot"
+  }
+  Compress-Archive -LiteralPath $reportItems -DestinationPath $reportZipPath -CompressionLevel Optimal -Force
   if ($null -ne $Session) {
     foreach ($file in $files) {
       $relativePath = Get-RelativeFilePath -Root $ReportRoot -Path $file

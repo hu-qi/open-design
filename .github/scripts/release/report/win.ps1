@@ -44,7 +44,11 @@ function Write-ReportZip {
 
   New-Item -ItemType Directory -Force -Path $ReportRoot, (Split-Path -Parent $ZipPath) | Out-Null
   Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
-  Compress-Archive -LiteralPath (Join-Path $ReportRoot "*") -DestinationPath $ZipPath -CompressionLevel Optimal -Force
+  $items = @(Get-ChildItem -LiteralPath $ReportRoot -Force | Select-Object -ExpandProperty FullName)
+  if ($items.Count -eq 0) {
+    throw "cannot create release report zip from empty directory: $ReportRoot"
+  }
+  Compress-Archive -LiteralPath $items -DestinationPath $ZipPath -CompressionLevel Optimal -Force
   Write-Host "wrote release report zip: $ZipPath"
 }
 

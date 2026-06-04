@@ -13,6 +13,14 @@ const releasePreviewWorkflowPath = join(workspaceRoot, ".github", "workflows", "
 const releaseStableWorkflowPath = join(workspaceRoot, ".github", "workflows", "release-stable.yml");
 const releaseStableScriptPath = join(workspaceRoot, "scripts", "release-stable.ts");
 const releaseMacAssetsScriptPath = join(workspaceRoot, ".github", "scripts", "release", "assets", "mac.sh");
+const releasePublishBetaCommonScriptPath = join(
+  workspaceRoot,
+  ".github",
+  "scripts",
+  "release",
+  "publish-beta-common.ps1",
+);
+const releaseWinReportScriptPath = join(workspaceRoot, ".github", "scripts", "release", "report", "win.ps1");
 
 describe("packaged smoke workflow", () => {
   it("keeps packaged smoke outside the main CI gate", async () => {
@@ -210,6 +218,23 @@ describe("packaged smoke workflow", () => {
     expect(workflow).not.toContain("publish-beta-metadata.ps1");
     expect(workflow).not.toContain("probe-beta-public-read.ps1");
     expect(workflow).not.toContain("publish-beta.ps1 -IndexPath");
+  });
+
+  it("keeps Windows release report zips materialized before platform publication", async () => {
+    const [workflow, winReportScript, publishCommonScript] = await Promise.all([
+      readFile(releaseBetaSelfHostedWorkflowPath, "utf8"),
+      readFile(releaseWinReportScriptPath, "utf8"),
+      readFile(releasePublishBetaCommonScriptPath, "utf8"),
+    ]);
+
+    expect(workflow).toContain("REPORT_ZIP_PATH: C:\\.tmp\\runner\\od-beta\\win\\release-report\\win-report.zip");
+    expect(workflow).toContain("C:\\.tmp\\runner\\od-beta\\win\\release-report\\win-report.zip");
+    expect(winReportScript).toContain("Get-ChildItem -LiteralPath $ReportRoot -Force");
+    expect(winReportScript).toContain("Compress-Archive -LiteralPath $items");
+    expect(publishCommonScript).toContain("Get-ChildItem -LiteralPath $ReportRoot -Force");
+    expect(publishCommonScript).toContain("Compress-Archive -LiteralPath $reportItems");
+    expect(winReportScript).not.toMatch(/Compress-Archive -LiteralPath\s+\(Join-Path\s+\$ReportRoot\s+"\\*"\)/);
+    expect(publishCommonScript).not.toMatch(/Compress-Archive -LiteralPath\s+\(Join-Path\s+\$ReportRoot\s+"\\*"\)/);
   });
 });
 
