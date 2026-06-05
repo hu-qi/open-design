@@ -295,7 +295,7 @@ jobs:
     outputs:
       asset_version_suffix: ${{ steps.beta.outputs.asset_version_suffix }}
       base_version: ${{ steps.beta.outputs.base_version }}
-      beta_version: ${{ inputs.publish && steps.reserve.outputs.beta_version || inputs.release_version || steps.beta.outputs.beta_version }}
+      beta_version: ${{ inputs.publish && steps.reserve.outputs.beta_version || inputs.release_version != '' && inputs.release_version || steps.beta.outputs.beta_version }}
       branch: ${{ steps.beta.outputs.branch }}
       commit: ${{ steps.beta.outputs.commit }}
       previous_commit: ${{ steps.prev.outputs.previous_commit }}
@@ -427,8 +427,8 @@ jobs:
           fnm exec --using=24 -- node --experimental-strip-types ./scripts/release-beta.ts
 
       - name: Reserve beta version
-        id: reserve
         if: ${{ inputs.publish }}
+        id: reserve
         working-directory: _release-metadata
         env:
           BASE_VERSION: ${{ steps.beta.outputs.base_version }}
