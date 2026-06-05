@@ -109,7 +109,7 @@ export type SolutionPageKey =
   | 'image'
   | 'video'
   | 'designSystem'
-  // Solution → Roles (`/roles/<slug>/`)
+  // Solution → Roles (`/solutions/<slug>/`)
   | 'roleSoloBuilder'
   | 'roleDesigner'
   | 'roleEngineering'

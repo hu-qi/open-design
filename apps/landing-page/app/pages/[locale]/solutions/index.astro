@@ -1,6 +1,6 @@
 ---
-import Page from '../../../roles/engineering/index.astro';
-import { DEFAULT_LOCALE, LANDING_LOCALES } from '../../../../i18n';
+import Page from '../../solutions/index.astro';
+import { DEFAULT_LOCALE, LANDING_LOCALES } from '../../../i18n';
 
 export function getStaticPaths() {
   return LANDING_LOCALES.filter((locale) => locale.code !== DEFAULT_LOCALE).map(
