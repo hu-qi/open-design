@@ -1325,6 +1325,7 @@ function OnboardingView({
     onFinish();
   }
   function handleBackWithTracking(): void {
+    if (newsletterSubmitting) return;
     if (step === 0) {
       // Step 0 "Back" semantically maps to Skip — there's nowhere
       // earlier to go. Match the Skip telemetry shape rather than
@@ -1638,6 +1639,7 @@ function OnboardingView({
     }
   }
 
+  const onboardingNavigationLocked = newsletterSubmitting;
   const primaryActionLabel = isLastStep && newsletterSubmitting
     ? t('common.loading')
     : step === 0 && amrLoginPending
@@ -1663,7 +1665,11 @@ function OnboardingView({
         {steps.map((label, index) => (
           <li key={label} className={index === step ? 'is-active' : index < step ? 'is-done' : ''}>
             <span>{index + 1}</span>
-            <button type="button" onClick={() => setStep(index)}>
+            <button
+              type="button"
+              onClick={() => setStep(index)}
+              disabled={onboardingNavigationLocked}
+            >
               {label}
             </button>
           </li>
@@ -1911,6 +1917,7 @@ function OnboardingView({
               type="button"
               className="onboarding-view__secondary"
               onClick={handleBackWithTracking}
+              disabled={onboardingNavigationLocked}
             >
               {step === 0 ? t('settings.onboardingSkip') : t('settings.onboardingBack')}
             </button>
