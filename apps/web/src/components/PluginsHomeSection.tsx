@@ -3,14 +3,16 @@
 // Renders an artifact-kind bar over the plugin catalog: Prototype ·
 // Slides · Image · Video · HyperFrames · Audio. Prototype, Slides,
 // Image, and Video can reveal scene buckets from the user-prompt
-// taxonomy; HyperFrames and Audio stay flat.
+// taxonomy; HyperFrames and Audio stay flat. A small Saved chip
+// sits orthogonal to the rows for quick access to user-saved picks.
 //
 // The category list is curated — finer metadata (surface, role tags,
 // scenario domains) lives on each plugin card and detail surface.
 //
 // Derivation, catalog building and category-based filtering live in
-// `./plugins-home/facets.ts`; selection state lives in
-// `./plugins-home/usePluginFacets.ts`. This file owns layout only.
+// `./plugins-home/facets.ts`; selection state and the Saved
+// override live in `./plugins-home/usePluginFacets.ts`. This file
+// owns layout only.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InstalledPluginRecord } from '@open-design/contracts';
@@ -19,8 +21,12 @@ import type { PluginShareAction } from '../state/projects';
 import { Icon } from './Icon';
 import { PluginCard } from './plugins-home/PluginCard';
 import { isFeaturedPlugin, type FacetOption, type FacetSelection } from './plugins-home/facets';
+import { localizePluginTitle } from './plugins-home/localization';
 import { usePluginFacets } from './plugins-home/usePluginFacets';
+import { useSavedPluginIds } from './plugins-home/savedPlugins';
 import type { PluginUseAction } from './plugins-home/useActions';
+import { Toast } from './Toast';
+import { AnimatePresence } from 'motion/react';
 
 const INITIAL_PLUGIN_RENDER_LIMIT = 60;
 const PLUGIN_RENDER_BATCH_SIZE = 60;
@@ -74,21 +80,27 @@ export function PluginsHomeSection({
   cardLayout = 'rich',
 }: Props) {
   const { locale, t } = useI18n();
+  const { savedPluginIds, savePluginId } = useSavedPluginIds();
+  const [saveToast, setSaveToast] = useState<string | null>(null);
   const [renderLimit, setRenderLimit] = useState(INITIAL_PLUGIN_RENDER_LIMIT);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const {
     visiblePlugins,
+    savedList,
     filtered,
     catalog,
     selection,
     pickCategory,
     pickSubcategory,
     clearFacets,
+    mode,
+    setMode,
     query,
     setQuery,
     totalVisible,
   } = usePluginFacets({
     plugins,
+    savedPluginIds,
     preferDefaultFacet,
     presetSelection,
     locale,
@@ -124,6 +136,17 @@ export function PluginsHomeSection({
     return () => observer.disconnect();
   }, [filtered.length, hasMorePlugins]);
 
+  function handleSavePlugin(record: InstalledPluginRecord): void {
+    const result = savePluginId(record.id);
+    const title = localizePluginTitle(locale, record);
+    if (result === 'saved') {
+      setSaveToast(`Saved ${title}.`);
+    } else if (result === 'already-saved') {
+      setSaveToast(`${title} is already saved.`);
+    } else {
+      setSaveToast('Could not save this plugin in this browser.');
+    }
+  }
 
   return (
     <section className="plugins-home" data-testid="plugins-home-section">
@@ -166,6 +189,15 @@ export function PluginsHomeSection({
               selectedSlug={selection.category}
               totalVisible={totalVisible}
               onPick={pickCategory}
+              // The Saved collection lives on the rich management surface
+              // (PluginsView). The minimal Community gallery has no per-card
+              // save affordance, so the orthogonal Saved chip is hidden there.
+              showSaved={cardLayout === 'rich'}
+              savedCount={savedList.length}
+              savedActive={mode === 'saved'}
+              onToggleSaved={() =>
+                setMode(mode === 'saved' ? 'all' : 'saved')
+              }
               query={query}
               onQueryChange={setQuery}
             />
@@ -204,8 +236,10 @@ export function PluginsHomeSection({
                   pendingAny={pendingApplyId !== null}
                   pendingShareAction={pendingShareAction}
                   isFeatured={isFeaturedPlugin(p)}
+                  isSaved={savedPluginIds.has(p.id)}
                   onUse={onUse}
                   onOpenDetails={onOpenDetails}
+                  onSave={handleSavePlugin}
                   onShareAction={onPluginShareAction}
                   layout={cardLayout}
                   {...(onOpenExternal ? { onOpenExternal } : {})}
@@ -222,6 +256,15 @@ export function PluginsHomeSection({
           )}
         </>
       )}
+      <AnimatePresence>
+        {saveToast ? (
+          <Toast
+            message={saveToast}
+            ttlMs={2200}
+            onDismiss={() => setSaveToast(null)}
+          />
+        ) : null}
+      </AnimatePresence>
     </section>
   );
 }
@@ -231,19 +274,29 @@ interface CategoryRowProps {
   selectedSlug: string | null;
   totalVisible: number;
   onPick: (slug: string | null) => void;
+  // The Saved override chip only renders on the rich management surface
+  // (PluginsView); the minimal Community gallery hides it.
+  showSaved: boolean;
+  savedCount: number;
+  savedActive: boolean;
+  onToggleSaved: () => void;
   query: string;
   onQueryChange: (next: string) => void;
 }
 
-// Single combined filter bar: category pills on the left, search field
-// on the right. The "All" pill doubles as a clear-filters affordance, so
-// a separate `X / Y` counter and `Clear` link would just repeat what the
-// pill strip already shows.
+// Single combined filter bar: an optional Saved override chip + category
+// pills on the left, search field on the right. The "All" pill doubles as a
+// clear-filters affordance, so a separate `X / Y` counter and `Clear` link
+// would just repeat what the pill strip already shows.
 function CategoryRow({
   options,
   selectedSlug,
   totalVisible,
   onPick,
+  showSaved,
+  savedCount,
+  savedActive,
+  onToggleSaved,
   query,
   onQueryChange,
 }: CategoryRowProps) {
@@ -259,6 +312,25 @@ function CategoryRow({
         role="tablist"
         aria-label={t('pluginsHome.categoryFilterAria')}
       >
+        {showSaved ? (
+          <button
+            type="button"
+            className={[
+              'plugins-home__chip',
+              'plugins-home__chip--saved',
+              savedActive ? 'is-active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onClick={onToggleSaved}
+            aria-pressed={savedActive}
+            data-testid="plugins-home-chip-saved"
+          >
+            <Icon name="star" size={11} />
+            <span>{t('pluginsHome.featured')}</span>
+            <span className="plugins-home__chip-count">{savedCount}</span>
+          </button>
+        ) : null}
         <CategoryPill
           slug={null}
           label={t('common.all')}

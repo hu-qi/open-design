@@ -13,6 +13,7 @@
 // needs to commit.
 
 import { useMemo, useState } from 'react';
+import { VisuallyHidden } from '@open-design/components';
 import type { InstalledPluginRecord } from '@open-design/contracts';
 import { useI18n } from '../../i18n';
 import type { PluginShareAction } from '../../state/projects';
@@ -30,6 +31,9 @@ interface Props {
   pendingAny: boolean;
   pendingShareAction?: { pluginId: string; action: PluginShareAction } | null;
   isFeatured: boolean;
+  // Saved collection (rich layout only — the gallery tile has no save UI).
+  isSaved: boolean;
+  onSave: (record: InstalledPluginRecord) => void;
   onUse: (record: InstalledPluginRecord, action: PluginUseAction) => void;
   onOpenDetails: (record: InstalledPluginRecord) => void;
   onShareAction?: (
@@ -55,6 +59,8 @@ export function PluginCard({
   pendingAny,
   pendingShareAction = null,
   isFeatured,
+  isSaved,
+  onSave,
   onUse,
   onOpenDetails,
   onShareAction,
@@ -325,6 +331,23 @@ export function PluginCard({
       </div>
 
       <div className="plugins-home__card-foot">
+        <button
+          type="button"
+          className={[
+            'plugins-home__card-save',
+            isSaved ? 'is-saved' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onClick={() => onSave(record)}
+          aria-pressed={isSaved}
+          aria-label={`${isSaved ? 'Saved' : 'Save'} ${title}`}
+          title={isSaved ? 'Saved' : 'Save'}
+          data-testid={`plugins-home-save-${record.id}`}
+        >
+          <Icon name={isSaved ? 'check' : 'star'} size={12} />
+          <VisuallyHidden>{isSaved ? 'Saved' : 'Save'}</VisuallyHidden>
+        </button>
         <span className="plugins-home__card-title" title={title}>
           <span className="plugins-home__card-title-text">{title}</span>
         </span>
