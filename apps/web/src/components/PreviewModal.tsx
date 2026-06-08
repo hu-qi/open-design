@@ -829,7 +829,10 @@ export function PreviewModal({
           ref={stageRef}
         >
           <div className="ds-modal-stage-iframe" ref={stageFrameRef}>
-            {!isCustomView && !activeUnavailable && !activeError ? (
+            {/* Also render for custom-stage views (media players: image /
+                video / audio) — the header no longer carries fullscreen, so
+                this hover icon is their only fullscreen affordance. */}
+            {!activeUnavailable && !activeError ? (
               <button
                 type="button"
                 className="ds-modal-stage-fullscreen"

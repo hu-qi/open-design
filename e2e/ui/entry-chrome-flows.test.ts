@@ -469,7 +469,7 @@ test('[P1] entry execution pill remains available across secondary entry pages',
   }
 });
 
-test('[P1] home starters can browse registry and use a starter query from Home', async ({ page }) => {
+test('[P1] home starters can browse registry and use a starter from Home', async ({ page }) => {
   await page.route('**/api/plugins', async (route) => {
     await route.fulfill({
       json: {
@@ -498,12 +498,12 @@ test('[P1] home starters can browse registry and use a starter query from Home',
   // collapse button on hover, which would intercept the click).
   await page.getByTestId('entry-nav-home').click();
   await expect(page.getByTestId('home-hero')).toBeVisible();
-  await expect(page.getByTestId('plugins-home-use-menu-localized-plugin')).toBeVisible();
-  await page.getByTestId('plugins-home-use-menu-localized-plugin').click({ force: true });
-  await page.getByTestId('plugins-home-use-with-query-localized-plugin').click();
-
-  const input = page.getByTestId('home-hero-input');
-  await expect(input).toHaveText('Make a design systems brief.');
+  // Community is a gallery now (no inline Use button): open the starter's
+  // detail modal and use it. Plain "Use" routes it as the active driver — its
+  // query/context bind on submit — rather than pre-filling the prompt text.
+  await page.getByTestId('plugins-home-details-localized-plugin').click({ force: true });
+  await page.getByTestId('plugin-details-use-localized-plugin').click();
+  await expect(page.getByTestId('home-hero-active-plugin')).toBeVisible();
 });
 
 test('[P2] home starters shows the empty catalog state when no plugins are available', async ({ page }) => {
@@ -870,7 +870,7 @@ test('[P0] home starters direct Use routes the plugin as the active driver and k
   expect(projectBody.pluginId).toBe('localized-plugin');
 });
 
-test('[P1] home starters Use with query hydrates the prompt and routes the plugin as the active driver', async ({ page }) => {
+test('[P1] home starters route the picked plugin as the active driver from its detail modal', async ({ page }) => {
   await page.route('**/api/plugins', async (route) => {
     await route.fulfill({
       json: {
@@ -884,17 +884,13 @@ test('[P1] home starters Use with query hydrates the prompt and routes the plugi
 
   await gotoEntryHome(page);
 
-  const input = page.getByTestId('home-hero-input');
-  await expect(input).toHaveText('');
   const starterCard = page.locator('[data-plugin-id="localized-plugin"]').first();
   await starterCard.scrollIntoViewIfNeeded();
-  await starterCard.hover();
-  await expect(page.getByTestId('plugins-home-use-menu-localized-plugin')).toBeVisible();
-  await page.getByTestId('plugins-home-use-menu-localized-plugin').click();
-  await page.getByTestId('plugins-home-use-with-query-localized-plugin').click();
-  await expect(input).toHaveText('Make a design systems brief.');
-  // The query hydrates the empty draft and the plugin is routed as the active
-  // driver (active-plugin chip), so its pipeline/context bind on submit.
+  // Community is a gallery: open the starter's detail modal and use it. Plain
+  // "Use" routes the plugin as the active driver (active-plugin chip), so its
+  // pipeline/context bind on submit.
+  await page.getByTestId('plugins-home-details-localized-plugin').click({ force: true });
+  await page.getByTestId('plugin-details-use-localized-plugin').click();
   await expect(page.getByTestId('home-hero-active-plugin')).toBeVisible();
 });
 
@@ -915,11 +911,13 @@ test('[P0] home starters Use with query carries the hydrated starter prompt into
   const input = page.getByTestId('home-hero-input');
   const starterCard = page.locator('[data-plugin-id="localized-plugin"]').first();
   await starterCard.scrollIntoViewIfNeeded();
-  await starterCard.hover();
-  await expect(page.getByTestId('plugins-home-use-menu-localized-plugin')).toBeVisible();
-  await page.getByTestId('plugins-home-use-menu-localized-plugin').click();
-  await page.getByTestId('plugins-home-use-with-query-localized-plugin').click();
-  await expect(input).toHaveText('Make a design systems brief.');
+  // Use the starter from its detail modal (gallery has no inline Use). Plain
+  // "Use" routes it as the active run driver; the gallery no longer pre-fills
+  // the prompt, so the user types their brief before submitting.
+  await page.getByTestId('plugins-home-details-localized-plugin').click({ force: true });
+  await page.getByTestId('plugin-details-use-localized-plugin').click();
+  await expect(page.getByTestId('home-hero-active-plugin')).toBeVisible();
+  await input.fill('Make a design systems brief.');
 
   const projectRequestPromise = page.waitForRequest(isCreateProjectRequest);
   await page.getByTestId('home-hero-submit').click();
