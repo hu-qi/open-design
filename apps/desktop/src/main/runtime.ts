@@ -791,11 +791,12 @@ const MAC_WINDOW_CHROME_CSS = `
   }
 `;
 
-// White-background startup splash shown while the web runtime boots. It plays
-// the brand intro clip once (no loop) and then freezes on its final settled
-// "Open design" frame, which doubles as the hold state when the app takes longer
-// than `MIN_SPLASH_MS` to come up. The clip is embedded as a base64 data URL so
-// it renders identically in dev and in packaged builds (see `splash-video.ts`).
+// White-background startup splash shown while the web runtime boots. It loops
+// the brand intro clip until the main window is ready; packaged cold boots can
+// outlast the ~1.7s clip, and a one-shot video would otherwise sit on the final
+// logo frame before the user has a chance to see the animation. The clip is
+// embedded as a base64 data URL so it renders identically in dev and in packaged
+// builds (see `splash-video.ts`).
 function createPendingHtml(): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
@@ -828,6 +829,7 @@ function createPendingHtml(): string {
     <video
       id="splash"
       autoplay
+      loop
       muted
       playsinline
       disablepictureinpicture
@@ -838,9 +840,11 @@ function createPendingHtml(): string {
         var video = document.getElementById("splash");
         if (!video) return;
         var play = function () {
+          if (video.currentTime > 0 && video.ended) video.currentTime = 0;
           var attempt = video.play();
           if (attempt && typeof attempt.catch === "function") attempt.catch(function () {});
         };
+        video.addEventListener("loadedmetadata", function () { video.currentTime = 0; });
         video.addEventListener("loadeddata", play);
         play();
       })();
