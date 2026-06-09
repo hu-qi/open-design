@@ -7,6 +7,7 @@ import {
   sanitizePriorAssistantTurnForTranscript,
   streamViaDaemon,
 } from '../../src/providers/daemon';
+import { streamMessage as streamProviderMessage } from '../../src/providers/anthropic';
 import { streamMessageOpenAI } from '../../src/providers/openai-compatible';
 import { parseSseFrame } from '../../src/providers/sse';
 
@@ -1703,6 +1704,49 @@ describe('streamMessageOpenAI', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/proxy/openai/stream', expect.any(Object));
     expect(handlers.onDelta).toHaveBeenCalledWith('hi');
+    expect(handlers.onDone).toHaveBeenCalledWith('hi');
+  });
+
+  it('threads proxy context through the web OpenAI chat path', async () => {
+    const handlers = createStreamHandlers();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse(
+        [
+          'event: delta',
+          'data: {"delta":"hi"}',
+          '',
+          'event: end',
+          'data: {}',
+          '',
+        ].join('\n'),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await streamProviderMessage(
+      {
+        mode: 'api',
+        apiProtocol: 'openai',
+        apiKey: 'test-key',
+        baseUrl: 'https://example.test',
+        model: 'gpt-test',
+        agentId: null,
+        skillId: null,
+        designSystemId: null,
+      },
+      '',
+      [{ id: '1', role: 'user', content: 'hello' }],
+      new AbortController().signal,
+      handlers,
+      { projectId: 'project-123' },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call = fetchMock.mock.calls[0]!;
+    const endpoint = call[0];
+    const init = call[1] as RequestInit | undefined;
+    expect(endpoint).toBe('/api/proxy/openai/stream');
+    expect(JSON.parse(String(init?.body))).toMatchObject({ projectId: 'project-123' });
     expect(handlers.onDone).toHaveBeenCalledWith('hi');
   });
 });
