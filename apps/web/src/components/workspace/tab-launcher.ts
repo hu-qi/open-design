@@ -56,7 +56,7 @@ export interface LauncherAction {
   run: (ctx: LauncherContext) => void;
 }
 
-const ENABLE_EXPERIMENTAL_WORKSPACE_SURFACE_ENTRYPOINTS = false;
+const ENABLE_TERMINAL_WORKSPACE_ENTRYPOINT = false;
 
 /**
  * Build the list of "create new" actions for the current context.
@@ -68,10 +68,7 @@ const ENABLE_EXPERIMENTAL_WORKSPACE_SURFACE_ENTRYPOINTS = false;
  */
 export function buildLauncherActions(ctx: LauncherContext): LauncherAction[] {
   const actions: LauncherAction[] = [];
-  if (!ENABLE_EXPERIMENTAL_WORKSPACE_SURFACE_ENTRYPOINTS) {
-    return actions;
-  }
-  if (ctx.createTerminal) {
+  if (ENABLE_TERMINAL_WORKSPACE_ENTRYPOINT && ctx.createTerminal) {
     actions.push({
       id: 'new-terminal',
       iconName: 'terminal',

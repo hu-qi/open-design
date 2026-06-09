@@ -690,7 +690,7 @@ describe('FileWorkspace launcher tab creation', () => {
     });
   });
 
-  it('hides experimental terminal and browser creation actions from the launcher', () => {
+  it('hides terminal creation while keeping browser creation available', () => {
     render(
       <FileWorkspace
         projectId="project-1"
@@ -707,8 +707,8 @@ describe('FileWorkspace launcher tab creation', () => {
     fireEvent.click(screen.getByTestId('workspace-add-tab'));
 
     expect(screen.queryByRole('button', { name: /New Terminal/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /New Browser/i })).toBeNull();
-    expect(screen.queryByText('Create new')).toBeNull();
+    expect(screen.getByRole('button', { name: /New Browser/i })).toBeTruthy();
+    expect(screen.getByText('Create new')).toBeTruthy();
   });
 
   it('renders terminal and side chat tabs after a Design Files-anchored browser tab', () => {
@@ -750,6 +750,50 @@ describe('FileWorkspace launcher tab creation', () => {
       'New Terminal',
       'Side chat',
     ]);
+  });
+
+  it('anchors a new browser after the visible tab tail', async () => {
+    const onTabsStateChange = vi.fn();
+    const rootBrowserTab = {
+      id: '__browser__:1',
+      insertAfter: '__design_files__',
+      label: 'Browser',
+    };
+
+    render(
+      <FileWorkspace
+        projectId="project-1"
+        projectKind="prototype"
+        files={[]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        tabsState={{
+          tabs: ['terminal:term-1'],
+          active: 'terminal:term-1',
+          browserTabs: [rootBrowserTab],
+        }}
+        onTabsStateChange={onTabsStateChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('workspace-add-tab'));
+    fireEvent.click(await screen.findByRole('button', { name: /New Browser/i }));
+
+    await waitFor(() => {
+      expect(onTabsStateChange).toHaveBeenCalledWith({
+        tabs: ['terminal:term-1'],
+        active: '__browser__:2',
+        browserTabs: [
+          rootBrowserTab,
+          {
+            id: '__browser__:2',
+            insertAfter: 'terminal:term-1',
+            label: 'Browser 2',
+          },
+        ],
+      });
+    });
   });
 
   it('reanchors stale browser tabs before appending a file from the launcher', async () => {
@@ -1815,7 +1859,7 @@ describe('FileWorkspace sketch save', () => {
 });
 
 describe('FileWorkspace add-module menu', () => {
-  it('opens the add-module menu without exposing experimental Browser or Terminal actions', () => {
+  it('opens the add-module menu with Browser available and Terminal hidden', () => {
     render(
       <FileWorkspace
         projectId="project-1"
@@ -1837,9 +1881,9 @@ describe('FileWorkspace add-module menu', () => {
     });
 
     expect(addButton.getAttribute('aria-expanded')).toBe('true');
-    const menu = screen.getByTestId('tab-launcher-menu');
+    const browserItem = screen.getByRole('button', { name: /New Browser/ });
+    const menu = browserItem.closest('[data-testid="tab-launcher-menu"]');
     expect(menu).not.toBeNull();
-    expect(screen.queryByRole('button', { name: /New Browser/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /New Terminal/ })).toBeNull();
 
     // The tab strip is a horizontal scroll container that also clips
@@ -1853,7 +1897,7 @@ describe('FileWorkspace add-module menu', () => {
     expect(addButton.closest('.ws-add-tab')).not.toBeNull();
   });
 
-  it('orders launcher sections as files then tabs in one scroll body', () => {
+  it('orders launcher sections as create new, files, then tabs in one scroll body', () => {
     render(
       <FileWorkspace
         projectId="project-1"
@@ -1883,13 +1927,69 @@ describe('FileWorkspace add-module menu', () => {
     });
 
     const scrollBody = screen.getByTestId('tab-launcher-scroll-body');
+    const createHeader = screen.getByText('Create new');
     const fileHeader = screen.getByText('Open a file');
     const tabsHeader = screen.getByText('Open tabs');
 
-    expect(screen.queryByText('Create new')).toBeNull();
+    expect(scrollBody.contains(createHeader)).toBe(true);
     expect(scrollBody.contains(fileHeader)).toBe(true);
     expect(scrollBody.contains(tabsHeader)).toBe(true);
+    expect(createHeader.compareDocumentPosition(fileHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(fileHeader.compareDocumentPosition(tabsHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('adds a new browser tab every time the Browser module is selected', () => {
+    const onTabsStateChange = vi.fn();
+    render(
+      <FileWorkspace
+        projectId="project-1"
+        projectKind="prototype"
+        files={[]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        tabsState={{ tabs: [], active: null }}
+        onTabsStateChange={onTabsStateChange}
+      />,
+    );
+
+    const addButton = screen.getByTestId('workspace-add-tab');
+    for (let i = 0; i < 3; i += 1) {
+      act(() => {
+        fireEvent.click(addButton);
+      });
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: /New Browser/ }));
+      });
+    }
+
+    const browserTabs = screen
+      .getAllByRole('tab')
+      .filter((tab) => /Browser(?: \d+)?/.test(tab.textContent ?? ''));
+    expect(browserTabs).toHaveLength(3);
+    expect(browserTabs.map((tab) => tab.textContent?.trim())).toEqual([
+      'Browser',
+      'Browser 2',
+      'Browser 3',
+    ]);
+    expect(browserTabs[2]!.getAttribute('aria-selected')).toBe('true');
+
+    const browserPanels = screen
+      .getAllByTestId('design-browser-panel')
+      .map((panel) => panel.closest('.ws-browser-panel'));
+    expect(browserPanels).toHaveLength(3);
+    expect(browserPanels[0]!.className).not.toContain('active');
+    expect(browserPanels[1]!.className).not.toContain('active');
+    expect(browserPanels[2]!.className).toContain('active');
+    expect(onTabsStateChange).toHaveBeenLastCalledWith({
+      tabs: [],
+      active: '__browser__:3',
+      browserTabs: [
+        { id: '__browser__:1', insertAfter: '__design_files__', label: 'Browser' },
+        { id: '__browser__:2', insertAfter: '__browser__:1', label: 'Browser 2' },
+        { id: '__browser__:3', insertAfter: '__browser__:2', label: 'Browser 3' },
+      ],
+    });
   });
 
   it('restores persisted browser tabs with their active URL state', () => {
