@@ -224,9 +224,11 @@ export async function loadAppDirectoryRegistry(
       throw new Error(`Failed to load app package manifest at ${manifestPath}: ${reason}`);
     }
 
-    if (typeof manifest.name === "string" && manifest.name.length > 0) {
-      packageNameByDirectory.set(entry.name, manifest.name);
+    if (typeof manifest.name !== "string" || manifest.name.trim().length === 0) {
+      throw new Error(`Failed to load app package manifest at ${manifestPath}: package name must be a non-empty string`);
     }
+
+    packageNameByDirectory.set(entry.name, manifest.name);
   }
 
   return { packageNameByDirectory };

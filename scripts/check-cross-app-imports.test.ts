@@ -161,3 +161,21 @@ test("app registry loading fails loudly when an app manifest is malformed", asyn
 
   await rm(appsRoot, { force: true, recursive: true });
 });
+
+test("app registry loading rejects parseable app manifests without a package name", async () => {
+  const appsRoot = await mkdtemp(path.join(os.tmpdir(), "open-design-apps-"));
+  const appRoot = path.join(appsRoot, "web");
+  const manifestPath = path.join(appRoot, "package.json");
+
+  await mkdir(appRoot);
+  await writeFile(manifestPath, "{}", "utf8");
+
+  await assert.rejects(
+    loadAppDirectoryRegistry(appsRoot),
+    (error) =>
+      error instanceof Error &&
+      error.message === `Failed to load app package manifest at ${manifestPath}: package name must be a non-empty string`,
+  );
+
+  await rm(appsRoot, { force: true, recursive: true });
+});
