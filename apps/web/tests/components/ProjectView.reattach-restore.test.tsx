@@ -32,6 +32,15 @@ const patchConversation = vi.fn();
 const patchProject = vi.fn();
 const saveTabs = vi.fn();
 
+const chatPaneHarness = vi.hoisted(() => ({
+  onSend: null as null | ((
+    prompt: string,
+    attachments: unknown[],
+    commentAttachments?: unknown[],
+    meta?: unknown,
+  ) => unknown),
+}));
+
 vi.mock('../../src/i18n', () => ({
   // ProjectView calls useI18n() (for locale/t); mock it like the other
   // ProjectView suites so the render does not throw on a missing export.
@@ -78,6 +87,7 @@ vi.mock('../../src/router', () => ({
 }));
 
 vi.mock('../../src/state/projects', () => ({
+  cacheTabsLocally: vi.fn((projectId: string, tabs: unknown) => ({ projectId, tabs })),
   createConversation: (...args: unknown[]) => createConversation(...args),
   deleteConversation: vi.fn(),
   getTemplate: (...args: unknown[]) => getTemplate(...args),
@@ -86,6 +96,7 @@ vi.mock('../../src/state/projects', () => ({
   loadTabs: (...args: unknown[]) => loadTabs(...args),
   patchConversation: (...args: unknown[]) => patchConversation(...args),
   patchProject: (...args: unknown[]) => patchProject(...args),
+  persistTabsToDaemonNow: vi.fn(),
   saveMessage: (...args: unknown[]) => saveMessage(...args),
   saveTabs: (...args: unknown[]) => saveTabs(...args),
 }));
@@ -99,7 +110,10 @@ vi.mock('../../src/components/AvatarMenu', () => ({
 }));
 
 vi.mock('../../src/components/ChatPane', () => ({
-  ChatPane: () => null,
+  ChatPane: ({ onSend }: { onSend: typeof chatPaneHarness.onSend }) => {
+    chatPaneHarness.onSend = onSend;
+    return null;
+  },
 }));
 
 vi.mock('../../src/components/FileWorkspace', () => ({
@@ -208,6 +222,21 @@ describe('computeTraceObjectFiles', () => {
 
     expect(touched).toEqual(['existing.html']);
   });
+
+  it('recovers supported write/edit aliases with path inputs from persisted tool events', () => {
+    const touched = extractTouchedFilePathsFromEvents([
+      { kind: 'tool_use', id: 'tool-1', name: 'create_file', input: { path: 'created.html' } },
+      { kind: 'tool_result', toolUseId: 'tool-1', isError: false },
+      { kind: 'tool_use', id: 'tool-2', name: 'str_replace_edit', input: { path: 'edited.html' } },
+      { kind: 'tool_result', toolUseId: 'tool-2', isError: false },
+      { kind: 'tool_use', id: 'tool-3', name: 'MultiEdit', input: { path: 'multi.html' } },
+      { kind: 'tool_result', toolUseId: 'tool-3', isError: false },
+      { kind: 'tool_use', id: 'tool-4', name: 'multi_edit', input: { path: 'failed.html' } },
+      { kind: 'tool_result', toolUseId: 'tool-4', isError: true },
+    ] as never);
+
+    expect(touched).toEqual(['created.html', 'edited.html', 'multi.html']);
+  });
 });
 
 describe('mergeRecoveredArtifact', () => {
@@ -234,6 +263,7 @@ describe('ProjectView daemon reattach restore', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    chatPaneHarness.onSend = null;
     window.sessionStorage.clear();
   });
 
@@ -339,6 +369,69 @@ describe('ProjectView daemon reattach restore', () => {
         .at(-1);
       expect(lastWithProduced?.producedFiles?.map((f) => f.name)).toEqual(['new.pptx']);
       expect(lastWithProduced?.runStatus).toBe('succeeded');
+    });
+  });
+
+  it('clears touched-file paths after a failed run before the next successful run finalizes', async () => {
+    listConversations.mockResolvedValue([{ id: 'conv-1', title: 'Conversation' }]);
+    listMessages.mockResolvedValue([]);
+    fetchPreviewComments.mockResolvedValue([]);
+    loadTabs.mockResolvedValue({ tabs: [], activeTabId: null });
+    fetchLiveArtifacts.mockResolvedValue([]);
+    fetchSkill.mockResolvedValue(null);
+    fetchDesignSystem.mockResolvedValue(null);
+    getTemplate.mockResolvedValue(null);
+    listActiveChatRuns.mockResolvedValue([]);
+
+    const projectFiles = [
+      { name: 'existing.html', path: 'existing.html', size: 10, mtime: 1, kind: 'html', mime: 'text/html' },
+    ];
+    fetchProjectFiles.mockResolvedValue(projectFiles);
+    streamViaDaemon
+      .mockImplementationOnce(async (options: any) => {
+        options.onRunCreated('run-failed');
+        options.handlers.onAgentEvent({
+          kind: 'tool_use',
+          id: 'tool-1',
+          name: 'str_replace_edit',
+          input: { path: 'existing.html' },
+        });
+        options.handlers.onAgentEvent({
+          kind: 'tool_result',
+          toolUseId: 'tool-1',
+          content: '',
+          isError: false,
+        });
+        options.onRunStatus('failed');
+        options.handlers.onError(new Error('failed after edit'));
+      })
+      .mockImplementationOnce(async (options: any) => {
+        options.onRunCreated('run-succeeded');
+        options.handlers.onDelta('done');
+        options.handlers.onDone('done');
+      });
+
+    renderProjectView();
+    await waitFor(() => expect(chatPaneHarness.onSend).toBeTruthy());
+
+    await chatPaneHarness.onSend!('first run', [], []);
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      const failed = saveMessage.mock.calls
+        .map((call) => call[2] as ChatMessage)
+        .find((m) => m?.runId === 'run-failed' && m.runStatus === 'failed');
+      expect(failed).toBeTruthy();
+    });
+
+    await chatPaneHarness.onSend!('second run', [], []);
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => {
+      const secondRunFinal = saveMessage.mock.calls
+        .map((call) => call[2] as ChatMessage)
+        .filter((m) => m?.runId === 'run-succeeded' && Array.isArray(m.traceObjectFiles))
+        .at(-1);
+      expect(secondRunFinal?.traceObjectFiles).toEqual([]);
     });
   });
 
