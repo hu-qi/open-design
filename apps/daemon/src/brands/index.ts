@@ -48,7 +48,8 @@ import { brandSystemDir, rebuildSystem } from './system.js';
 import { extractJsonBlock, validateBrand } from './validate.js';
 import { BRAND_KIT_FILE, writeBrandKitPreview } from './kit-render.js';
 import { selfHostGoogleFonts } from './fonts.js';
-import { ensureLogoFallback, type LogoFallbackFn } from './logo-fallback.js';
+import { adoptExistingLogos, ensureLogoFallback, type LogoFallbackFn, type LogoSlot } from './logo-fallback.js';
+import { ensureImageryFallback, type ImageryFallbackFn } from './imagery-fallback.js';
 import {
   createBrandDir,
   deleteBrandDir,
@@ -247,6 +248,10 @@ export interface FinalizeBrandOptions {
   /** Override the deterministic logo harvester (tests inject a no-op / stub to
    *  avoid real network calls). Defaults to the live icon-fetching fallback. */
   logoFallback?: LogoFallbackFn;
+  /** Override the deterministic imagery harvester (tests inject a no-op / stub
+   *  to avoid real network calls). Defaults to the live cover/hero-image
+   *  fallback that runs when the agent captured too few `imagery.samples`. */
+  imageryFallback?: ImageryFallbackFn;
 }
 
 /**
@@ -259,7 +264,15 @@ export interface FinalizeBrandOptions {
 export async function finalizeBrand(
   opts: FinalizeBrandOptions,
 ): Promise<BrandFinalizeResponse> {
-  const { id, brandsRoot, userDesignSystemsRoot, projectsRoot, db, logoFallback = ensureLogoFallback } = opts;
+  const {
+    id,
+    brandsRoot,
+    userDesignSystemsRoot,
+    projectsRoot,
+    db,
+    logoFallback = ensureLogoFallback,
+    imageryFallback = ensureImageryFallback,
+  } = opts;
   const meta = readMeta(brandsRoot, id);
   if (!meta) throw new Error(`brand not found: ${id}`);
   const projectId = opts.projectId ?? meta.projectId ?? brandProjectId(id);
@@ -308,6 +321,23 @@ export async function finalizeBrand(
     }
   } catch {
     // Offline / unreachable origin — keep the (empty) logo and continue.
+  }
+
+  // Deterministic imagery safety net: if the agent captured too few
+  // representative images, harvest the site's real cover/hero images
+  // server-side so the kit's Images gallery actually populates. It first
+  // adopts any files already saved into imagery/ (offline), then harvests the
+  // live site only when still short. Best-effort — offline just leaves the
+  // gallery as the agent left it. Re-persist brand.json so the new samples
+  // flow into the synced project files and the rendered kit page below.
+  try {
+    const brandDir = resolveBrandFile(brandsRoot, id, []);
+    if (brandDir) {
+      const result = await imageryFallback(meta.sourceUrl, path.join(brandDir, 'imagery'), brand.imagery);
+      if (result.changed) writeBrand(brandsRoot, id, brand);
+    }
+  } catch {
+    // Offline / unreachable origin — keep whatever imagery the agent saved.
   }
 
   // Self-host any Google Fonts the agent declared (typography.*.googleFontsUrl)
@@ -459,6 +489,26 @@ export async function renderBrandPreviewIntoProject(
     }
   }
 
+  // Keep the live page logo-complete: when brand.json carries no `logo.primary`
+  // yet (the agent overwrote the seed or hasn't saved a mark), adopt whatever
+  // logo files already sit in the project's `logos/` dir so the page shows a
+  // real mark instead of "No logo found". Non-destructive — enriches only the
+  // render payload; finalize is what persists the adopted primary to brand.json.
+  try {
+    const projectDir = resolveProjectDir(projectsRoot, projectId, {
+      kind: 'brand',
+      brandId: id,
+      brandSourceUrl: meta.sourceUrl,
+    });
+    const logoSlot = brandLogoSlot(brand.logo);
+    if (!logoSlot.primary) {
+      const adopted = adoptExistingLogos(path.join(projectDir, 'logos'), logoSlot);
+      if (adopted.changed) brand.logo = logoSlot;
+    }
+  } catch {
+    // Best-effort enrichment — never block the preview render on logo adoption.
+  }
+
   await writeBrandKitPreview({
     skillsRoot,
     projectsRoot,
@@ -486,7 +536,7 @@ function brandExtractionPrompt(input: { url: string; brandId: string; host: stri
     '1. MEASURE — drive the site with agent-browser. Snapshot it, then harvest the real design language: frequency-ranked color literals (background / surface / foreground / muted / border / accent / accent-secondary), the @font-face + font-family declarations, and representative headings + copy for voice.',
     '   - LOGO (extract MULTIPLE candidates): save every logo you can find as a file under `logos/` — the inline header/nav SVG (write the literal `<svg>…</svg>` markup verbatim to `logos/header.svg`, do NOT just reference it), any `<img>` logo, the `apple-touch-icon`, the `favicon`, and the `og:image`. Set `logo.primary` to the best vector/transparent lockup and list the rest in `logo.alternates` (the kit page shows them as switchable thumbnails). NEVER leave `logo.primary` empty when the site has any mark — fetch the asset URLs directly and save real files. (The daemon also auto-fetches a favicon/og:image fallback so the page is never logo-less, but that is a safety net, not a substitute for the real wordmark.)',
     '   - FONTS: record each real family in `typography` with its `fallbacks` and `weights`. When the family is on Google Fonts, set `googleFontsUrl` so finalize self-hosts it and specimens render for real; otherwise note it is proprietary. The kit page renders a big "Ag" specimen tile per family, so a correct `family` + `googleFontsUrl` makes them show in the real typeface.',
-    '   - IMAGERY (save 4–8 representative images): download a handful of the brand’s real images — hero/banner art, product or app screenshots, illustration/photography samples, and the `og:image` — and save each as a file under `imagery/`. List them in `brand.json` as `imagery.samples: [{ "file": "imagery/<file>", "kind": "hero|product|illustration|photo|og", "caption": "short label" }]`. The kit page renders these as an Images gallery (a thumbnail grid). Fetch the asset URLs directly; pick varied, on-brand images, not chrome/icons.',
+    '   - IMAGERY (save 6–8 of the site’s LARGE / COVER / HERO images): this is the Images module. Harvest the site’s actual big representative pictures — the `og:image`/`twitter:image` social card, the hero/banner art, the largest `<img>` (use the highest-res `srcset`/`<picture>` source), CSS `background-image` hero blocks, product/app screenshots, and illustration/photography samples. Filter by RENDERED size: keep only big images (roughly ≥320px on the long edge) and DROP icons, sprites, logos, avatars, and tracking pixels. Save each as a file under `imagery/` and list them in `brand.json` as `imagery.samples: [{ "file": "imagery/<file>", "kind": "cover|hero|product|illustration|photo", "caption": "short label" }]`. The kit page renders these as a clean labeled Images gallery (a thumbnail grid). Fetch the asset URLs directly; pick 6–8 varied, on-brand images — never UI chrome or icons. (The daemon also runs a deterministic cover/hero-image fallback at finalize so the gallery is rarely empty, but that safety net is no substitute for picking the real hero images yourself.)',
     '   - ANTI-BOT WALL: if the page is a Cloudflare / DataDome / "Just a moment…" / "Verify you are human" interstitial instead of the real site, STOP and emit a `<question-form>` asking the user to complete the verification in the browser, then Continue. Do NOT try to bypass it yourself. When the user submits the form, re-snapshot and resume.',
     '',
     '2. SYNTHESIZE INCREMENTALLY — write `brand.json` into this project AS SOON AS you have the name, a couple of colors, and a logo candidate (do not wait for everything). It must parse as JSON and use exactly the seven color roles (background, surface, foreground, muted, border, accent, accent-secondary), each with `hex` (#rrggbb), `oklch`, `name`, `usage`; plus `name`, `tagline`, `description`, `sourceUrl`, `logo` ({ primary, alternates, notes } with `logos/<file>` paths), `typography` ({ display, body, mono? } each { family, fallbacks[], weights[], googleFontsUrl? }), `voice`, `imagery` (incl. `samples` — the `imagery/<file>` images you saved), and `layout`. Never invent colors from memory — pick them from what you measured.',
@@ -500,6 +550,17 @@ function brandExtractionPrompt(input: { url: string; brandId: string; host: stri
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Coerce a loose brand.json `logo` value into a mutable {@link LogoSlot} the
+ *  on-disk logo adopter can fill in. Tolerates missing / malformed input. */
+function brandLogoSlot(raw: unknown): LogoSlot {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  return {
+    primary: typeof o.primary === 'string' && o.primary ? o.primary : null,
+    alternates: Array.isArray(o.alternates) ? o.alternates.filter((a): a is string => typeof a === 'string') : [],
+    notes: typeof o.notes === 'string' ? o.notes : '',
+  };
 }
 
 function brandProjectId(brandId: string): string {

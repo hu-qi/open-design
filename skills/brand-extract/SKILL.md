@@ -82,12 +82,19 @@ your run context — treat "this page" / "the site" as that tab):
      switchable thumbnails. (The daemon auto-fetches a favicon/og:image fallback
      into `logos/` so the page is never logo-less, but that safety net is no
      substitute for saving the real wordmark.)
-   - **Imagery (save 4–8 representative images)** — download a handful of the
-     brand's real images into `imagery/`: hero/banner art, product or app
-     screenshots, illustration/photography samples, and the `og:image`. List
-     them in `brand.json` as `imagery.samples` (see shape below); the kit page
-     renders them as an Images gallery (a thumbnail grid). Pick varied, on-brand
-     images — not UI chrome or icons.
+   - **Imagery (save 6–8 of the site's LARGE / COVER / HERO images)** — this is
+     the Images module. Harvest the site's actual big representative pictures and
+     save them into `imagery/`: the `og:image`/`twitter:image` social card, the
+     hero/banner art, the largest `<img>` (resolve the highest-res `srcset` /
+     `<picture>` source), CSS `background-image` hero blocks, product or app
+     screenshots, and illustration/photography samples. Filter by **rendered
+     size** — keep only big images (roughly ≥320px on the long edge) and drop
+     icons, sprites, logos, avatars, and tracking pixels. List them in
+     `brand.json` as `imagery.samples` (see shape below); the kit page renders
+     them as a clean labeled Images gallery (a thumbnail grid). Pick 6–8 varied,
+     on-brand images — never UI chrome or icons. (The daemon runs a deterministic
+     cover/hero-image fallback at finalize so the gallery is rarely empty, but
+     that safety net is no substitute for picking the real hero images.)
    - **Voice** — representative headings, taglines, and body copy to ground the
      voice; quote-level fidelity, not generic marketing speak.
 4. Save any self-hosted webfont files you can fetch into `fonts/`.
@@ -178,8 +185,9 @@ Hard rules:
 - **Logo:** use the `logos/<file>` paths you saved; never pick a photographic
   `og:image` as primary unless nothing else exists. Never leave `logo.primary`
   empty when the site has any mark.
-- **Imagery:** save real files under `imagery/` and reference them by their
-  `imagery/<file>` path in `imagery.samples`; 4–8 varied, on-brand images.
+- **Imagery:** save the site's real large/cover/hero images under `imagery/`
+  and reference them by their `imagery/<file>` path in `imagery.samples`; 6–8
+  varied, on-brand images filtered by rendered size — never icons or chrome.
 - Do not invent company facts beyond what the copy supports.
 
 **`BRAND.md`** — a prose brand guide an autonomous design agent can follow

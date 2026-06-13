@@ -16,6 +16,13 @@ import {
   renderBrandPreviewIntoProject,
   startBrandExtraction,
 } from '../src/brands/index.js';
+import { ensureLogoFallback } from '../src/brands/logo-fallback.js';
+import {
+  adoptExistingImagery,
+  findImageRefs,
+  imageSize,
+  type ImagerySlot,
+} from '../src/brands/imagery-fallback.js';
 
 // Real repo skills root so the bundled brand-kit template resolves.
 const SKILLS_ROOT = path.resolve(
@@ -26,6 +33,23 @@ const SKILLS_ROOT = path.resolve(
 // Injected logo harvester that does nothing — keeps the engine tests offline
 // (the real fallback fetches the site's icon assets over the network).
 const NO_LOGO_FALLBACK = async () => ({ changed: false });
+
+// Injected imagery harvester that does nothing — keeps finalize offline (the
+// real fallback fetches the site's cover/hero images over the network).
+const NO_IMAGERY_FALLBACK = async () => ({ changed: false });
+
+/** Build a tiny but structurally-valid PNG buffer with the given dimensions so
+ *  the imagery size gate decodes a real width/height (header-only). */
+function pngBuffer(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(33);
+  buf.writeUInt32BE(0x89504e47, 0);
+  buf.writeUInt32BE(0x0d0a1a0a, 4);
+  buf.writeUInt32BE(13, 8);
+  buf.write('IHDR', 12, 'ascii');
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
 
 // A minimal-but-valid brand.json the agent is expected to have written into the
 // backing project before finalize runs (seven roles, the three required ones).
@@ -183,6 +207,7 @@ describe('agent-driven brand extraction engine', () => {
       skillsRoot: SKILLS_ROOT,
       db,
       logoFallback: NO_LOGO_FALLBACK,
+      imageryFallback: NO_IMAGERY_FALLBACK,
     });
 
     expect(finalized.brand.name).toBe('Acme');
@@ -346,6 +371,115 @@ describe('agent-driven brand extraction engine', () => {
     expect(html).toContain('logos/apple-touch-icon.png');
   });
 
+  it('finalizeBrand adopts on-disk logo files when the agent left logo.primary empty', async () => {
+    const db = openDatabase(tempDir, { dataDir: tempDir });
+    const started = await startBrandExtraction({
+      url: 'acme.com',
+      brandsRoot,
+      projectsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      logoFallback: NO_LOGO_FALLBACK,
+    });
+
+    // The agent (or the seed harvester) saved real logo files into the project,
+    // but the agent's brand.json left `logo.primary` empty. The finalize logo
+    // safety net must wire the existing files into logo.primary so the kit page
+    // never reports "No logo found" while real marks sit in logos/.
+    const projectDir = path.join(projectsRoot, started.projectId);
+    mkdirSync(path.join(projectDir, 'logos'), { recursive: true });
+    writeFileSync(
+      path.join(projectDir, 'logos', 'header.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40"><rect width="120" height="40" /></svg>',
+      'utf8',
+    );
+    writeFileSync(
+      path.join(projectDir, 'logos', 'apple-touch-icon.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    writeFileSync(
+      path.join(projectDir, 'brand.json'),
+      JSON.stringify(
+        { ...VALID_BRAND, sourceUrl: started.sourceUrl, logo: { primary: null, alternates: [], notes: '' } },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    // Use the REAL fallback: with files already on disk it must adopt them
+    // offline (no network), not bail out.
+    const finalized = await finalizeBrand({
+      id: started.id,
+      brandsRoot,
+      userDesignSystemsRoot,
+      projectsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      logoFallback: ensureLogoFallback,
+      imageryFallback: NO_IMAGERY_FALLBACK,
+    });
+
+    expect(finalized.brand.logo.primary).toBe('logos/header.svg');
+
+    const html = readFileSync(path.join(projectDir, 'brand.html'), 'utf8');
+    expect(html).toContain('"status":"ready"');
+    expect(html).toContain('logos/header.svg');
+    // The adopted primary is embedded in the page payload, so the kit renders a
+    // real mark instead of the empty "No logo found" state.
+    expect(html).toContain('"primary":"logos/header.svg"');
+
+    // The synced project brand.json carries the adopted primary too, so the
+    // Brands tab and the opened project render an identical, complete logo.
+    const projectBrandJson = JSON.parse(
+      readFileSync(path.join(projectDir, 'brand.json'), 'utf8'),
+    ) as { logo?: { primary?: string | null } };
+    expect(projectBrandJson.logo?.primary).toBe('logos/header.svg');
+  });
+
+  it('preview adopts on-disk project logos so the live page is never logo-less', async () => {
+    const db = openDatabase(tempDir, { dataDir: tempDir });
+    const started = await startBrandExtraction({
+      url: 'acme.com',
+      brandsRoot,
+      projectsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      logoFallback: NO_LOGO_FALLBACK,
+    });
+
+    // Seed harvester wrote a mark into logos/, but the agent then overwrote
+    // brand.json with an empty logo while still measuring the rest.
+    const projectDir = path.join(projectsRoot, started.projectId);
+    mkdirSync(path.join(projectDir, 'logos'), { recursive: true });
+    writeFileSync(
+      path.join(projectDir, 'logos', 'apple-touch-icon.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    writeFileSync(
+      path.join(projectDir, 'brand.json'),
+      JSON.stringify({
+        name: 'Acme',
+        sourceUrl: started.sourceUrl,
+        colors: [VALID_BRAND.colors[0], VALID_BRAND.colors[2], VALID_BRAND.colors[5]],
+        logo: { primary: null, alternates: [], notes: '' },
+      }),
+      'utf8',
+    );
+
+    await renderBrandPreviewIntoProject({
+      id: started.id,
+      brandsRoot,
+      skillsRoot: SKILLS_ROOT,
+      projectsRoot,
+    });
+
+    const html = readFileSync(path.join(projectDir, 'brand.html'), 'utf8');
+    expect(html).toContain('logos/apple-touch-icon.png');
+    // Embedded as the payload primary, so the live page shows the seed mark.
+    expect(html).toContain('"primary":"logos/apple-touch-icon.png"');
+  });
+
   it('finalizeBrand mirrors imagery/ and renders the gallery on the ready page', async () => {
     const db = openDatabase(tempDir, { dataDir: tempDir });
     const started = await startBrandExtraction({
@@ -389,6 +523,7 @@ describe('agent-driven brand extraction engine', () => {
       skillsRoot: SKILLS_ROOT,
       db,
       logoFallback: NO_LOGO_FALLBACK,
+      imageryFallback: NO_IMAGERY_FALLBACK,
     });
 
     // Samples survive validation and the image is mirrored into the brand dir
@@ -400,5 +535,138 @@ describe('agent-driven brand extraction engine', () => {
     const html = readFileSync(path.join(projectDir, 'brand.html'), 'utf8');
     expect(html).toContain('"status":"ready"');
     expect(html).toContain('imagery/hero.png');
+  });
+
+  it('findImageRefs harvests large cover/hero images and drops icons/logos', () => {
+    const html = [
+      '<html><head>',
+      '<meta property="og:image" content="https://cdn.site.com/cover.jpg">',
+      '<link rel="preload" as="image" href="/img/hero.png">',
+      '</head><body>',
+      '<picture><source srcset="/img/big-800.webp 800w, /img/big-400.webp 400w"></picture>',
+      '<img src="/img/photo.jpg" width="900" height="600">',
+      '<img src="/icons/favicon.png" width="32" height="32">',
+      '<img src="/img/logo.svg">',
+      '<div style="background-image:url(\'/img/bg-hero.jpg\')"></div>',
+      '</body></html>',
+    ].join('\n');
+
+    const refs = findImageRefs(html, 'https://site.com/');
+    const urls = refs.map((r) => r.url);
+
+    // og:image is the strongest representative candidate.
+    const cover = refs.find((r) => r.url.endsWith('/cover.jpg'));
+    expect(cover?.rank).toBe(0);
+    expect(cover?.kind).toBe('cover');
+
+    // Hero preload, the largest srcset source, the big <img>, and the CSS hero
+    // background all survive.
+    expect(urls).toContain('https://site.com/img/hero.png');
+    expect(urls).toContain('https://site.com/img/big-800.webp');
+    expect(urls).not.toContain('https://site.com/img/big-400.webp');
+    expect(urls).toContain('https://site.com/img/photo.jpg');
+    expect(urls).toContain('https://site.com/img/bg-hero.jpg');
+
+    // Chrome is dropped: a 32px favicon, and an SVG logo.
+    expect(urls.some((u) => u.includes('favicon'))).toBe(false);
+    expect(urls.some((u) => u.includes('logo.svg'))).toBe(false);
+  });
+
+  it('imageSize decodes PNG and GIF header dimensions', () => {
+    expect(imageSize(pngBuffer(1200, 630))).toEqual({ w: 1200, h: 630 });
+
+    const gif = Buffer.alloc(24);
+    gif.write('GIF89a', 0, 'ascii');
+    gif.writeUInt16LE(640, 6);
+    gif.writeUInt16LE(480, 8);
+    expect(imageSize(gif)).toEqual({ w: 640, h: 480 });
+
+    // A buffer too short to carry a header decodes to null (size gate rejects).
+    expect(imageSize(Buffer.from([0x00, 0x01, 0x02]))).toBeNull();
+  });
+
+  it('adoptExistingImagery wires on-disk images into imagery.samples offline', () => {
+    const imageryDir = path.join(tempDir, 'adopt-imagery');
+    mkdirSync(imageryDir, { recursive: true });
+    writeFileSync(path.join(imageryDir, 'hero.png'), pngBuffer(1600, 900));
+    writeFileSync(path.join(imageryDir, 'screenshot.png'), pngBuffer(1280, 720));
+
+    const imagery: ImagerySlot = { samples: [] };
+    const result = adoptExistingImagery(imageryDir, imagery);
+
+    expect(result.changed).toBe(true);
+    const files = (imagery.samples ?? []).map((s) => s.file).sort();
+    expect(files).toEqual(['imagery/hero.png', 'imagery/screenshot.png']);
+  });
+
+  it('finalizeBrand runs the imagery fallback when the agent saved no samples', async () => {
+    const db = openDatabase(tempDir, { dataDir: tempDir });
+    const started = await startBrandExtraction({
+      url: 'acme.com',
+      brandsRoot,
+      projectsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      logoFallback: NO_LOGO_FALLBACK,
+    });
+
+    const projectDir = path.join(projectsRoot, started.projectId);
+    // Agent wrote a complete kit but captured ZERO imagery samples — exactly the
+    // case the displayed pre-imagery brand was stuck in.
+    writeFileSync(
+      path.join(projectDir, 'brand.json'),
+      JSON.stringify({ ...VALID_BRAND, sourceUrl: started.sourceUrl }, null, 2),
+      'utf8',
+    );
+
+    // Stub harvester mirrors the real one offline: it saves cover/hero images
+    // into imagery/ and records them in imagery.samples.
+    const stubImageryFallback = async (
+      _url: string,
+      imageryDir: string,
+      imagery: ImagerySlot,
+    ) => {
+      mkdirSync(imageryDir, { recursive: true });
+      writeFileSync(path.join(imageryDir, 'cover-0.jpg'), pngBuffer(1200, 630));
+      writeFileSync(path.join(imageryDir, 'hero-1.png'), pngBuffer(1600, 900));
+      writeFileSync(path.join(imageryDir, 'hero-2.png'), pngBuffer(1440, 810));
+      imagery.samples = [
+        { file: 'imagery/cover-0.jpg', kind: 'cover', caption: 'Social cover image' },
+        { file: 'imagery/hero-1.png', kind: 'hero', caption: 'Hero image' },
+        { file: 'imagery/hero-2.png', kind: 'hero', caption: 'Hero image 2' },
+      ];
+      return { changed: true };
+    };
+
+    const finalized = await finalizeBrand({
+      id: started.id,
+      brandsRoot,
+      userDesignSystemsRoot,
+      projectsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      logoFallback: NO_LOGO_FALLBACK,
+      imageryFallback: stubImageryFallback,
+    });
+
+    // The harvested samples flow into the validated brand and the saved files
+    // land in BOTH the brand dir and the synced project dir.
+    expect(finalized.brand.imagery.samples?.length).toBe(3);
+    expect(finalized.brand.imagery.samples?.[0]?.file).toBe('imagery/cover-0.jpg');
+    expect(existsSync(path.join(brandsRoot, started.id, 'imagery', 'cover-0.jpg'))).toBe(true);
+    expect(existsSync(path.join(projectDir, 'imagery', 'hero-1.png'))).toBe(true);
+
+    // The synced project brand.json carries the samples so the Brands tab
+    // gallery resolves identically to the kit page.
+    const projectBrandJson = JSON.parse(
+      readFileSync(path.join(projectDir, 'brand.json'), 'utf8'),
+    ) as { imagery?: { samples?: Array<{ file: string }> } };
+    expect(projectBrandJson.imagery?.samples?.map((s) => s.file)).toContain('imagery/cover-0.jpg');
+
+    // The ready kit page renders the Images gallery with the harvested files.
+    const html = readFileSync(path.join(projectDir, 'brand.html'), 'utf8');
+    expect(html).toContain('"status":"ready"');
+    expect(html).toContain('<div class="gallery">');
+    expect(html).toContain('imagery/cover-0.jpg');
   });
 });
