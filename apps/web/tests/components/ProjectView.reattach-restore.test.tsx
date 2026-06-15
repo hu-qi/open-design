@@ -562,6 +562,105 @@ describe('ProjectView daemon reattach restore', () => {
     });
   });
 
+  it('keeps touched-file paths isolated when a previous successful run finalizes late', async () => {
+    listConversations.mockResolvedValue([{ id: 'conv-1', title: 'Conversation' }]);
+    listMessages.mockResolvedValue([]);
+    fetchPreviewComments.mockResolvedValue([]);
+    loadTabs.mockResolvedValue({ tabs: [], activeTabId: null });
+    fetchLiveArtifacts.mockResolvedValue([]);
+    fetchSkill.mockResolvedValue(null);
+    fetchDesignSystem.mockResolvedValue(null);
+    getTemplate.mockResolvedValue(null);
+    listActiveChatRuns.mockResolvedValue([]);
+
+    const projectFiles = [
+      { name: 'first.html', path: 'first.html', size: 10, mtime: 1, kind: 'html', mime: 'text/html' },
+      { name: 'second.html', path: 'second.html', size: 10, mtime: 1, kind: 'html', mime: 'text/html' },
+    ];
+    fetchProjectFiles.mockResolvedValue(projectFiles);
+
+    streamViaDaemon
+      .mockImplementationOnce(async (options: any) => {
+        options.onRunCreated('run-first');
+        options.handlers.onAgentEvent({
+          kind: 'tool_use',
+          id: 'tool-first',
+          name: 'str_replace_edit',
+          input: { path: 'first.html' },
+        });
+        options.handlers.onAgentEvent({
+          kind: 'tool_result',
+          toolUseId: 'tool-first',
+          content: '',
+          isError: false,
+        });
+        options.handlers.onDelta('first done');
+        options.handlers.onDone('first done');
+      })
+      .mockImplementationOnce(async (options: any) => {
+        options.onRunCreated('run-second');
+        options.handlers.onAgentEvent({
+          kind: 'tool_use',
+          id: 'tool-second',
+          name: 'str_replace_edit',
+          input: { path: 'second.html' },
+        });
+        options.handlers.onAgentEvent({
+          kind: 'tool_result',
+          toolUseId: 'tool-second',
+          content: '',
+          isError: false,
+        });
+        options.handlers.onDelta('second done');
+        options.handlers.onDone('second done');
+      });
+
+    renderProjectView();
+    await waitFor(() => expect(chatPaneHarness.onSend).toBeTruthy());
+    await waitFor(() => expect(fetchProjectFiles).toHaveBeenCalled());
+
+    let resolveFirstFinalRefresh: ((files: typeof projectFiles) => void) | null = null;
+    let resolveSecondFinalRefresh: ((files: typeof projectFiles) => void) | null = null;
+    let refreshCall = 0;
+    fetchProjectFiles.mockClear();
+    fetchProjectFiles.mockImplementation(() => {
+      refreshCall += 1;
+      if (refreshCall === 2) {
+        return new Promise<typeof projectFiles>((resolve) => {
+          resolveFirstFinalRefresh = resolve;
+        });
+      }
+      if (refreshCall === 4) {
+        return new Promise<typeof projectFiles>((resolve) => {
+          resolveSecondFinalRefresh = resolve;
+        });
+      }
+      return Promise.resolve(projectFiles);
+    });
+
+    await chatPaneHarness.onSend!('first run', [], []);
+    await waitFor(() => expect(resolveFirstFinalRefresh).toBeTruthy());
+
+    await waitFor(() => {
+      const started = chatPaneHarness.onSend!('second run', [], []);
+      expect(started).toBeTruthy();
+    });
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(resolveSecondFinalRefresh).toBeTruthy());
+
+    resolveFirstFinalRefresh!(projectFiles);
+    await Promise.resolve();
+    resolveSecondFinalRefresh!(projectFiles);
+
+    await waitFor(() => {
+      const secondRunFinal = saveMessage.mock.calls
+        .map((call) => call[2] as ChatMessage)
+        .filter((m) => m?.runId === 'run-second' && Array.isArray(m.traceObjectFiles))
+        .at(-1);
+      expect(secondRunFinal?.traceObjectFiles?.map((file) => file.name)).toEqual(['second.html']);
+    });
+  });
+
   it('reaches succeeded state via the SSE end event even when only the terminal event replays', async () => {
     const startedAt = Date.now();
     listConversations.mockResolvedValue([{ id: 'conv-1', title: 'Conversation' }]);
