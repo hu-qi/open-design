@@ -42,6 +42,43 @@ export interface RunWithLifecycleTelemetry {
   analyticsTelemetry?: RunTelemetryTimestamps | null;
 }
 
+export interface RunLifecycleStreamEventMarkers {
+  firstModelEventType?: TrackingFirstModelEventType;
+  firstVisibleOutput: boolean;
+  firstArtifactWrite: boolean;
+}
+
+export function runLifecycleMarkersForStreamEvent(
+  event: string,
+  data: unknown,
+): RunLifecycleStreamEventMarkers {
+  const type =
+    data && typeof data === 'object' && 'type' in data
+      ? (data as { type?: unknown }).type
+      : undefined;
+  if (event === 'agent') {
+    const firstModelEventType =
+      type === 'text_delta' ||
+      type === 'thinking_delta' ||
+      type === 'tool_use' ||
+      type === 'artifact'
+        ? type
+        : undefined;
+    return {
+      ...(firstModelEventType ? { firstModelEventType } : {}),
+      firstVisibleOutput:
+        type === 'text_delta' ||
+        type === 'thinking_delta' ||
+        type === 'artifact',
+      firstArtifactWrite: type === 'artifact' || type === 'live_artifact',
+    };
+  }
+  return {
+    firstVisibleOutput: false,
+    firstArtifactWrite: event === 'live_artifact',
+  };
+}
+
 export function createRunLifecycleTracer(run: RunWithLifecycleTelemetry): {
   mark(mark: RunLifecycleMark, timestamp?: number): void;
   markFirstModelEvent(type: TrackingFirstModelEventType, timestamp?: number): void;

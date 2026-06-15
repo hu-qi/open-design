@@ -248,7 +248,10 @@ import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
-import { createRunLifecycleTracer } from './run-lifecycle-tracer.js';
+import {
+  createRunLifecycleTracer,
+  runLifecycleMarkersForStreamEvent,
+} from './run-lifecycle-tracer.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
 import { classifyRunFailure, isResumableFailure } from './run-failure-classification.js';
 import { decideSafeRunRetry } from './run-retry-policy.js';
@@ -12110,26 +12113,14 @@ export async function startServer({
     const CLARIFYING_QUESTION_BUFFER_CAP = 256 * 1024;
     let clarifyingQuestionText = '';
     const send = (event, data) => {
-      if (event === 'agent' && data && typeof data === 'object') {
-        if (
-          data.type === 'text_delta' ||
-          data.type === 'thinking_delta' ||
-          data.type === 'tool_use' ||
-          data.type === 'artifact'
-        ) {
-          lifecycle.markFirstModelEvent(data.type);
-        }
-        if (
-          data.type === 'text_delta' ||
-          data.type === 'thinking_delta' ||
-          data.type === 'artifact'
-        ) {
-          lifecycle.mark('first_visible_output');
-        }
-        if (data.type === 'artifact') {
-          lifecycle.mark('first_artifact_write');
-        }
-      } else if (event === 'live_artifact') {
+      const lifecycleMarkers = runLifecycleMarkersForStreamEvent(event, data);
+      if (lifecycleMarkers.firstModelEventType) {
+        lifecycle.markFirstModelEvent(lifecycleMarkers.firstModelEventType);
+      }
+      if (lifecycleMarkers.firstVisibleOutput) {
+        lifecycle.mark('first_visible_output');
+      }
+      if (lifecycleMarkers.firstArtifactWrite) {
         lifecycle.mark('first_artifact_write');
       }
       if (
@@ -14322,6 +14313,10 @@ export async function startServer({
       const promptInputFormat = def.promptInputFormat ?? 'text';
       lifecycle.mark('model_call_start');
       lifecycle.mark('stdin_write_start');
+      const markStdinWriteEnd = (err?: Error | null) => {
+        if (err) return;
+        lifecycle.mark('stdin_write_end');
+      };
       if (promptInputFormat === 'stream-json') {
         // Wrap the prompt as an Anthropic user message and write it as one
         // JSONL line. Do NOT close stdin: claude-code keeps reading further
@@ -14337,8 +14332,7 @@ export async function startServer({
           },
         });
         try {
-          child.stdin.write(`${userMessage}\n`, 'utf8');
-          lifecycle.mark('stdin_write_end');
+          child.stdin.write(`${userMessage}\n`, 'utf8', markStdinWriteEnd);
         } catch (err) {
           // Swallow EPIPE here for the same reason as the listener above —
           // a fast-exiting child has already routed its failure through
@@ -14347,8 +14341,7 @@ export async function startServer({
         }
         run.stdinOpen = true;
       } else {
-        child.stdin.end(composed, 'utf8');
-        lifecycle.mark('stdin_write_end');
+        child.stdin.end(composed, 'utf8', markStdinWriteEnd);
       }
     }
   };
