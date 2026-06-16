@@ -84,7 +84,7 @@
     kitRadioA: 'Monthly',
     kitRadioB: 'Annual',
     kitSwitch: 'Enabled',
-    kitBadges: 'Badges & navigation',
+    kitBadges: 'Badges & tags',
     kitBadgeNew: 'New',
     kitBadgeBeta: 'Beta',
     kitBadgePro: 'Pro',
@@ -99,6 +99,50 @@
     kitTableHead2: 'Role',
     kitTableHead3: 'Status',
     kitTableStatus: 'Active',
+    dsKitSub: "Buttons, inputs and cards rebuilt from this site's own component styles — radius, padding, border, shadow, weight and color.",
+    kitInputs: 'Inputs',
+    kitSelection: 'Selection',
+    kitAvatars: 'Avatars',
+    kitNav: 'Navigation',
+    kitData: 'Data display',
+    kitFeedback: 'Feedback',
+    kitOverlays: 'Overlays',
+    kitWithIcon: 'With icon',
+    kitLoading: 'Loading',
+    kitProgress: 'Progress',
+    kitSearchLabel: 'Search',
+    kitSearchPlaceholder: 'Search…',
+    kitTooltip: 'Hover me',
+    kitTooltipText: 'Tooltip',
+    kitStep1: 'Account',
+    kitStep2: 'Details',
+    kitStep3: 'Done',
+    kitStatVisitors: 'Visitors',
+    kitStatRevenue: 'Revenue',
+    kitStatChurn: 'Churn',
+    kitTablePending: 'Pending',
+    kitListMeta: 'Updated just now',
+    kitToastTitle: 'Saved',
+    kitToastBody: 'Your changes are live.',
+    kitDialogTitle: 'Delete item?',
+    kitDialogBody: 'This action cannot be undone. The item will be permanently removed.',
+    kitCancel: 'Cancel',
+    kitConfirm: 'Delete',
+    brandTemplates: 'Templates',
+    brandTemplatesSub: 'Ready-made layouts — landing, deck, poster, email, newsletter and form — composed from this brand. Click any tile to preview the full page.',
+    brandPreview: 'Preview →',
+    assetLanding: 'Landing page',
+    assetLandingDesc: 'Hero, nav and feature grid',
+    assetDeck: 'Title slide',
+    assetDeckDesc: 'Deck cover with brand mark',
+    assetPoster: 'Poster',
+    assetPosterDesc: 'Accent banner and headline',
+    assetEmail: 'Email',
+    assetEmailDesc: 'Header, body and CTA',
+    assetNewsletter: 'Newsletter',
+    assetNewsletterDesc: 'Masthead and article grid',
+    assetForm: 'Form',
+    assetFormDesc: 'Signup card and inputs',
   };
 
   function interpolateLocal(raw, vars) {
@@ -925,6 +969,48 @@
     const radiusNum = pxValue(layout.radius);
     const uiRadius = radiusNum != null ? `${Math.max(0, Math.min(16, Math.round(radiusNum)))}px` : '10px';
 
+    const surfaceRole = byRole('surface', '#ffffff');
+    const mutedRole = byRole('muted', '#57564f');
+    const borderRole = byRole('border', '#e7e5dc');
+    // The captured component styles drive the kit + templates so each site's
+    // design system looks like itself, not a shared template.
+    const atoms = deriveAtoms(data.components || {}, {
+      accent,
+      surface: surfaceRole,
+      foreground,
+      border: borderRole,
+    });
+
+    // Six on-brand artifact templates, rendered as scaled srcdoc previews.
+    const assetCtx = {
+      title: content.title || 'Brand',
+      tagline: content.description || '',
+      headings: content.headings || [],
+      domain: content.domain || '',
+      logo: logo ? logo.src : '',
+      initial,
+      images: images.map((s) => s.src),
+      accent,
+      ink,
+      onAccent,
+      bg: background,
+      surface: surfaceRole,
+      surfaceMuted: mixHex(background, foreground, 0.05),
+      fg: foreground,
+      muted: mutedRole,
+      border: borderRole,
+      fontDisplay,
+      fontBody,
+      atoms,
+    };
+    const templates = buildAssetTemplates(assetCtx);
+    const assetsSection = `<section class="sec"><h2 class="sec-title">${escapeHtml(tr('brandTemplates'))}</h2><p class="sec-sub">${escapeHtml(tr('brandTemplatesSub'))}</p><div class="assets">${templates
+      .map(
+        (t) =>
+          `<button type="button" class="asset" data-label="${escapeHtml(t.label)}" data-desc="${escapeHtml(t.desc)}"><span class="asset-frame"><iframe loading="lazy" tabindex="-1" aria-hidden="true" sandbox="" srcdoc="${srcdocEscape(t.html)}"></iframe></span><span class="asset-meta"><span class="asset-name">${escapeHtml(t.label)}<span class="asset-open">${escapeHtml(tr('brandPreview'))}</span></span><span class="asset-desc">${escapeHtml(t.desc)}</span></span></button>`,
+      )
+      .join('')}</div></section>`;
+
     // --- Header identity mark ---
     const headerMark = logo
       ? `<span class="id-mark" style="background:${escapeHtml(background)}"><img src="${escapeHtml(logo.src)}" alt="" /></span>`
@@ -1013,6 +1099,9 @@
       : '';
 
     // --- Component kit (a complete, on-brand UI kit) ---
+    const avatarMark = logo
+      ? `<span class="avatar"><img src="${escapeHtml(logo.src)}" alt="" /></span>`
+      : `<span class="avatar initials">${initial}</span>`;
     const kit = `<div class="kit">
       <div class="kit-group">
         <div class="kit-label">${escapeHtml(tr('kitButtons'))}</div>
@@ -1020,22 +1109,33 @@
           <button type="button" class="btn primary">${escapeHtml(tr('kitPrimary'))}</button>
           <button type="button" class="btn secondary">${escapeHtml(tr('kitSecondary'))}</button>
           <button type="button" class="btn ghost">${escapeHtml(tr('kitGhost'))}</button>
+          <button type="button" class="btn primary lg">${escapeHtml(tr('kitPrimary'))}</button>
           <button type="button" class="btn primary sm">${escapeHtml(tr('kitPrimary'))}</button>
+          <button type="button" class="btn primary"><span class="ic">&#9733;</span>${escapeHtml(tr('kitWithIcon'))}</button>
+          <button type="button" class="btn primary"><span class="spin"></span>${escapeHtml(tr('kitLoading'))}</button>
           <button type="button" class="btn primary" disabled>${escapeHtml(tr('kitDisabled'))}</button>
+          <button type="button" class="btn icon" aria-label="more">&#8943;</button>
         </div>
       </div>
       <div class="kit-group">
-        <div class="kit-label">${escapeHtml(tr('kitForms'))}</div>
+        <div class="kit-label">${escapeHtml(tr('kitInputs'))}</div>
         <div class="kit-grid">
           <label class="field-label">${escapeHtml(tr('kitFieldLabel'))}<input class="input" type="email" placeholder="${escapeHtml(tr('kitFieldPlaceholder'))}" /></label>
           <label class="field-label">${escapeHtml(tr('kitSelectLabel'))}<select class="input"><option>${escapeHtml(tr('kitRadioA'))}</option><option>${escapeHtml(tr('kitRadioB'))}</option></select></label>
+          <label class="field-label">${escapeHtml(tr('kitSearchLabel'))}<span class="search"><span class="search-ic">&#9906;</span><input class="input" type="search" placeholder="${escapeHtml(tr('kitSearchPlaceholder'))}" /></span></label>
+          <label class="field-label">${escapeHtml(tr('kitDisabled'))}<input class="input" value="${escapeHtml(tr('kitFieldPlaceholder'))}" disabled /></label>
         </div>
         <textarea class="input textarea" rows="2" placeholder="${escapeHtml(tr('kitTextareaPlaceholder'))}"></textarea>
+        <input class="range" type="range" min="0" max="100" value="62" aria-label="${escapeHtml(tr('kitProgress'))}" />
+      </div>
+      <div class="kit-group">
+        <div class="kit-label">${escapeHtml(tr('kitSelection'))}</div>
         <div class="kit-row toggles">
           <label class="check"><input type="checkbox" checked /> ${escapeHtml(tr('kitCheckbox'))}</label>
           <label class="check"><input type="radio" name="od-kit-r" checked /> ${escapeHtml(tr('kitRadioA'))}</label>
           <label class="check"><input type="radio" name="od-kit-r" /> ${escapeHtml(tr('kitRadioB'))}</label>
           <span class="switch on"><span class="knob"></span></span><span class="switch-label">${escapeHtml(tr('kitSwitch'))}</span>
+          <span class="seg"><button type="button" class="seg-opt active">${escapeHtml(tr('kitRadioA'))}</button><button type="button" class="seg-opt">${escapeHtml(tr('kitRadioB'))}</button></span>
         </div>
       </div>
       <div class="kit-group">
@@ -1045,8 +1145,48 @@
           <span class="badge soft">${escapeHtml(tr('kitBadgeBeta'))}</span>
           <span class="badge outline">${escapeHtml(tr('kitBadgePro'))}</span>
           <span class="dot-status"><span class="dot"></span>${escapeHtml(tr('kitTableStatus'))}</span>
+          <span class="tag">${escapeHtml(tr('kitTabOverview'))}<span class="tag-x">&times;</span></span>
+          <span class="tag">${escapeHtml(tr('kitTabActivity'))}<span class="tag-x">&times;</span></span>
+          <span class="tip-wrap">${escapeHtml(tr('kitTooltip'))}<span class="tip">${escapeHtml(tr('kitTooltipText'))}</span></span>
         </div>
+      </div>
+      <div class="kit-group">
+        <div class="kit-label">${escapeHtml(tr('kitAvatars'))}</div>
+        <div class="kit-row" style="gap:18px">
+          <span class="avatar-group">${avatarMark}<span class="avatar initials">AT</span><span class="avatar initials">GH</span><span class="avatar more">+5</span></span>
+          <span class="user"><span class="avatar initials">AL</span><span class="user-meta"><b>Ada Lovelace</b><span class="muted-s">${escapeHtml(tr('kitTabOverview'))}</span></span></span>
+        </div>
+      </div>
+      <div class="kit-group">
+        <div class="kit-label">${escapeHtml(tr('kitNav'))}</div>
         <div class="tabs"><button type="button" class="tab active">${escapeHtml(tr('kitTabOverview'))}</button><button type="button" class="tab">${escapeHtml(tr('kitTabActivity'))}</button><button type="button" class="tab">${escapeHtml(tr('kitTabSettings'))}</button></div>
+        <nav class="crumbs">Home<span>/</span>${escapeHtml(tr('kitTabOverview'))}<span>/</span><b>${escapeHtml(tr('kitTabSettings'))}</b></nav>
+        <div class="kit-row" style="justify-content:space-between">
+          <div class="steps"><span class="step done"><i>1</i>${escapeHtml(tr('kitStep1'))}</span><span class="step active"><i>2</i>${escapeHtml(tr('kitStep2'))}</span><span class="step"><i>3</i>${escapeHtml(tr('kitStep3'))}</span></div>
+          <div class="pager"><button type="button" class="page">&#8249;</button><button type="button" class="page active">1</button><button type="button" class="page">2</button><button type="button" class="page">3</button><button type="button" class="page">&#8250;</button></div>
+        </div>
+      </div>
+      <div class="kit-group">
+        <div class="kit-label">${escapeHtml(tr('kitData'))}</div>
+        <div class="stats">
+          <div class="stat"><span class="stat-k">${escapeHtml(tr('kitStatVisitors'))}</span><b class="stat-v">128.4k</b><span class="stat-d up">+12.5%</span></div>
+          <div class="stat"><span class="stat-k">${escapeHtml(tr('kitStatRevenue'))}</span><b class="stat-v">$48,920</b><span class="stat-d up">+4.2%</span></div>
+          <div class="stat"><span class="stat-k">${escapeHtml(tr('kitStatChurn'))}</span><b class="stat-v">1.8%</b><span class="stat-d down">-0.4%</span></div>
+        </div>
+        <table class="ui-table"><thead><tr><th>${escapeHtml(tr('kitTableHead1'))}</th><th>${escapeHtml(tr('kitTableHead2'))}</th><th>${escapeHtml(tr('kitTableHead3'))}</th></tr></thead><tbody>
+          <tr><td><span class="user-cell"><span class="avatar initials xs">AL</span>Ada Lovelace</span></td><td>${escapeHtml(tr('kitTabOverview'))}</td><td><span class="badge soft">${escapeHtml(tr('kitTableStatus'))}</span></td></tr>
+          <tr><td><span class="user-cell"><span class="avatar initials xs">AT</span>Alan Turing</span></td><td>${escapeHtml(tr('kitTabActivity'))}</td><td><span class="badge outline">${escapeHtml(tr('kitTablePending'))}</span></td></tr>
+        </tbody></table>
+        <ul class="list">
+          <li class="list-item"><span class="li-dot"></span><span class="li-main"><b>${escapeHtml(content.headings[0] || content.title)}</b><span class="muted-s">${escapeHtml(tr('kitListMeta'))}</span></span><span class="badge soft">${escapeHtml(tr('kitBadgeNew'))}</span></li>
+          <li class="list-item"><span class="li-dot"></span><span class="li-main"><b>${escapeHtml(content.headings[1] || content.title)}</b><span class="muted-s">${escapeHtml(tr('kitListMeta'))}</span></span><span class="chevron">&#8250;</span></li>
+        </ul>
+      </div>
+      <div class="kit-group">
+        <div class="kit-label">${escapeHtml(tr('kitFeedback'))}</div>
+        <div class="alert"><span class="alert-icon">&#9733;</span><span>${escapeHtml(tr('kitAlert'))}</span></div>
+        <div class="toast"><span class="toast-dot"></span><span><b>${escapeHtml(tr('kitToastTitle'))}</b><span class="muted-s">${escapeHtml(tr('kitToastBody'))}</span></span><span class="toast-x">&times;</span></div>
+        <div class="kit-row" style="gap:18px"><span class="progress" style="flex:1"><span style="width:62%"></span></span><span class="spin dark"></span></div>
       </div>
       <div class="kit-group two">
         <div class="ui-card">
@@ -1054,15 +1194,20 @@
           <p class="ui-card-body">${escapeHtml(tr('kitCardBody'))}</p>
           <div class="kit-row"><button type="button" class="btn primary sm">${escapeHtml(tr('kitPrimary'))}</button><button type="button" class="btn ghost sm">${escapeHtml(tr('kitSecondary'))}</button></div>
         </div>
-        <div class="alert"><span class="alert-icon">&#9733;</span><span>${escapeHtml(tr('kitAlert'))}</span></div>
+        <div class="menu">
+          <div class="menu-item">${escapeHtml(tr('kitTabOverview'))}<span class="menu-k">&#8984;O</span></div>
+          <div class="menu-item active">${escapeHtml(tr('kitTabActivity'))}<span class="menu-k">&#8984;A</span></div>
+          <div class="menu-sep"></div>
+          <div class="menu-item">${escapeHtml(tr('kitTabSettings'))}</div>
+        </div>
       </div>
       <div class="kit-group">
-        <div class="kit-label">${escapeHtml(tr('kitTabs'))}</div>
-        <table class="ui-table"><thead><tr><th>${escapeHtml(tr('kitTableHead1'))}</th><th>${escapeHtml(tr('kitTableHead2'))}</th><th>${escapeHtml(tr('kitTableHead3'))}</th></tr></thead><tbody>
-          <tr><td>Ada Lovelace</td><td>${escapeHtml(tr('kitTabOverview'))}</td><td><span class="badge soft">${escapeHtml(tr('kitTableStatus'))}</span></td></tr>
-          <tr><td>Alan Turing</td><td>${escapeHtml(tr('kitTabActivity'))}</td><td><span class="badge soft">${escapeHtml(tr('kitTableStatus'))}</span></td></tr>
-        </tbody></table>
-        <div class="progress"><span style="width:62%"></span></div>
+        <div class="kit-label">${escapeHtml(tr('kitOverlays'))}</div>
+        <div class="dialog">
+          <div class="dialog-head"><b>${escapeHtml(tr('kitDialogTitle'))}</b><span class="toast-x">&times;</span></div>
+          <p class="dialog-body">${escapeHtml(tr('kitDialogBody'))}</p>
+          <div class="dialog-foot"><button type="button" class="btn ghost sm">${escapeHtml(tr('kitCancel'))}</button><button type="button" class="btn primary sm">${escapeHtml(tr('kitConfirm'))}</button></div>
+        </div>
       </div>
     </div>`;
 
@@ -1104,6 +1249,31 @@
     --err: #b4453a;
     --radius: 14px;
     --ui-radius: ${uiRadius};
+    --btn-bg: ${atoms.button.bg};
+    --btn-fg: ${atoms.button.fg};
+    --btn-bd: ${atoms.button.border};
+    --btn-bw: ${atoms.button.borderWidth}px;
+    --btn-radius: ${atoms.button.radius}px;
+    --btn-px: ${atoms.button.padX}px;
+    --btn-py: ${atoms.button.padY}px;
+    --btn-weight: ${atoms.button.weight};
+    --btn-transform: ${atoms.button.transform};
+    --btn-ls: ${atoms.button.letterSpacing};
+    --btn-shadow: ${atoms.button.shadow};
+    --inp-bg: ${atoms.input.bg};
+    --inp-fg: ${atoms.input.fg};
+    --inp-bd: ${atoms.input.border};
+    --inp-bw: ${atoms.input.borderWidth}px;
+    --inp-radius: ${atoms.input.radius}px;
+    --inp-px: ${atoms.input.padX}px;
+    --inp-py: ${atoms.input.padY}px;
+    --inp-shadow: ${atoms.input.shadow};
+    --card-bg: ${atoms.card.bg};
+    --card-bd: ${atoms.card.border};
+    --card-bw: ${atoms.card.borderWidth}px;
+    --card-radius: ${atoms.card.radius}px;
+    --card-shadow: ${atoms.card.shadow};
+    --card-pad: ${atoms.card.pad}px;
     --font-display: ${fontDisplay};
     --font-body: ${fontBody};
     --font-mono: ${fontMono};
@@ -1208,26 +1378,40 @@
   .shot-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .shot-cap { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding: 8px 10px 10px; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); }
 
-  /* Component kit */
-  .kit { display: grid; gap: 22px; border: 1px solid var(--line-soft); background: var(--surface); border-radius: var(--radius); padding: 22px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  /* Component kit — styled from the captured atoms (button / input / card) */
+  .kit { display: grid; gap: 24px; border: 1px solid var(--line-soft); background: var(--surface); border-radius: var(--radius); padding: 24px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
   .kit-group { display: grid; gap: 12px; }
   .kit-group.two { grid-template-columns: 1fr; }
-  @media (min-width: 640px) { .kit-group.two { grid-template-columns: 1.3fr 1fr; align-items: stretch; gap: 14px; } }
+  @media (min-width: 640px) { .kit-group.two { grid-template-columns: 1.3fr 1fr; align-items: stretch; gap: 16px; } }
   .kit-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faint); }
   .kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .kit-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
   @media (min-width: 560px) { .kit-grid { grid-template-columns: 1fr 1fr; } }
-  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 0 16px; border-radius: var(--ui-radius); border: 1px solid transparent; font: 600 13px/1 var(--font-body); cursor: pointer; }
-  .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-  .btn.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+  .muted-s { color: var(--ink-faint); font-size: 12px; }
+  /* Buttons (captured look) */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: var(--btn-py) var(--btn-px); border-radius: var(--btn-radius); border: var(--btn-bw) solid transparent; font-family: var(--font-body); font-size: 13px; font-weight: var(--btn-weight); text-transform: var(--btn-transform); letter-spacing: var(--btn-ls); line-height: 1; cursor: pointer; }
+  .btn.primary { background: var(--btn-bg); color: var(--btn-fg); border-color: var(--btn-bd); box-shadow: var(--btn-shadow); }
+  .btn.secondary { background: var(--surface); color: var(--ink); border: var(--btn-bw) solid var(--line); }
   .btn.ghost { background: transparent; color: var(--accent-ink); }
-  .btn.sm { min-height: 30px; padding: 0 12px; font-size: 12px; }
+  .btn.lg { font-size: 15px; padding: calc(var(--btn-py) + 3px) calc(var(--btn-px) + 6px); }
+  .btn.sm { font-size: 12px; padding: calc(var(--btn-py) - 3px) calc(var(--btn-px) - 5px); }
+  .btn.icon { padding: 0; width: 38px; height: 38px; background: var(--surface); color: var(--ink); border: var(--btn-bw) solid var(--line); }
   .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .btn .ic { font-size: 13px; }
+  .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--btn-fg) 40%, transparent); border-top-color: var(--btn-fg); animation: od-spin .7s linear infinite; display: inline-block; }
+  .spin.dark { border-color: var(--line); border-top-color: var(--accent); width: 18px; height: 18px; }
+  @keyframes od-spin { to { transform: rotate(360deg); } }
+  /* Inputs (captured look) */
   .field-label { display: grid; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink-mute); }
-  .input { width: 100%; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: var(--surface); color: var(--ink); font: 400 14px/1.4 var(--font-body); }
+  .input { width: 100%; padding: var(--inp-py) var(--inp-px); border: var(--inp-bw) solid var(--inp-bd); border-radius: var(--inp-radius); background: var(--inp-bg); color: var(--inp-fg); box-shadow: var(--inp-shadow); font: 400 14px/1.4 var(--font-body); }
   .input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; border-color: var(--accent); }
-  .input.textarea { padding: 10px 12px; min-height: 64px; resize: none; line-height: 1.5; }
+  .input[disabled] { opacity: .55; }
+  .input.textarea { min-height: 64px; resize: none; line-height: 1.5; }
   select.input { appearance: none; -webkit-appearance: none; }
+  .search { position: relative; display: block; }
+  .search-ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); font-size: 13px; pointer-events: none; }
+  .search .input { padding-left: 30px; }
+  .range { width: 100%; accent-color: var(--accent); }
   .toggles { gap: 16px; }
   .check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink); cursor: pointer; }
   .check input { accent-color: var(--accent); width: 15px; height: 15px; }
@@ -1236,26 +1420,111 @@
   .switch .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
   .switch.on .knob { left: 18px; }
   .switch-label { font-size: 13px; color: var(--ink-mute); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg-opt { border: 0; background: var(--surface); color: var(--ink-mute); padding: 7px 14px; font: 500 12px/1 var(--font-body); cursor: pointer; }
+  .seg-opt.active { background: var(--accent); color: var(--on-accent); }
+  /* Badges, tags, tooltip */
   .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
   .badge.solid { background: var(--accent); color: var(--on-accent); }
   .badge.soft { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink); }
   .badge.outline { border: 1px solid var(--line); color: var(--ink-mute); }
   .dot-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-mute); }
   .dot-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .tag { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 12px; color: var(--ink); }
+  .tag-x { color: var(--ink-faint); cursor: pointer; }
+  .tip-wrap { position: relative; font-size: 12px; color: var(--ink-mute); border-bottom: 1px dotted var(--ink-faint); cursor: default; }
+  .tip { position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; font-size: 11px; padding: 5px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .14s ease; z-index: 2; }
+  .tip-wrap:hover .tip { opacity: 1; }
+  /* Avatars */
+  .avatar { width: 34px; height: 34px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent-ink); font-size: 12px; font-weight: 700; flex: none; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar.xs { width: 22px; height: 22px; font-size: 10px; }
+  .avatar-group { display: inline-flex; }
+  .avatar-group > * { margin-left: -8px; box-shadow: 0 0 0 2px var(--surface); }
+  .avatar-group > *:first-child { margin-left: 0; }
+  .avatar.more { background: var(--line-soft); color: var(--ink-mute); }
+  .user { display: inline-flex; align-items: center; gap: 9px; }
+  .user-meta { display: flex; flex-direction: column; }
+  .user-meta b { font-size: 13px; }
+  .user-cell { display: inline-flex; align-items: center; gap: 8px; }
+  /* Navigation */
   .tabs { display: inline-flex; gap: 2px; border-bottom: 1px solid var(--line-soft); }
   .tab { border: 0; background: transparent; cursor: pointer; padding: 8px 12px; font: 500 13px/1 var(--font-body); color: var(--ink-mute); border-bottom: 2px solid transparent; margin-bottom: -1px; }
   .tab.active { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
-  .ui-card { border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--paper); padding: 16px; display: grid; gap: 8px; align-content: start; }
+  .crumbs { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-mute); }
+  .crumbs span { color: var(--ink-faint); }
+  .crumbs b { color: var(--ink); font-weight: 600; }
+  .steps { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .step { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-faint); }
+  .step i { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); font-style: normal; font-size: 11px; }
+  .step.active { color: var(--ink); }
+  .step.active i { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .step.done { color: var(--ink-mute); }
+  .step.done i { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-ink); border-color: transparent; }
+  .pager { display: inline-flex; gap: 4px; }
+  .page { min-width: 30px; height: 30px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; color: var(--ink-mute); cursor: pointer; font: 500 12px/1 var(--font-body); }
+  .page.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  /* Data display */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat { border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px; background: var(--surface); }
+  .stat-k { font-size: 12px; color: var(--ink-faint); }
+  .stat-v { display: block; font-size: 22px; margin: 4px 0 2px; }
+  .stat-d { font-size: 12px; font-weight: 600; }
+  .stat-d.up { color: var(--ok); }
+  .stat-d.down { color: var(--err); }
+  .ui-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .ui-table th, .ui-table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line-soft); }
+  .ui-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); font-weight: 600; }
+  .ui-table tbody tr:last-child td { border-bottom: 0; }
+  .list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+  .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+  .list-item:last-child { border-bottom: 0; }
+  .li-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+  .li-main { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+  .chevron { color: var(--ink-faint); }
+  /* Card, alert, toast, progress */
+  .ui-card { background: var(--card-bg); border: var(--card-bw) solid var(--card-bd); border-radius: var(--card-radius); box-shadow: var(--card-shadow); padding: var(--card-pad); display: grid; gap: 8px; align-content: start; }
   .ui-card-title { font-weight: 600; font-size: 14px; }
   .ui-card-body { margin: 0; font-size: 13px; color: var(--ink-mute); line-height: 1.5; }
   .alert { display: flex; gap: 10px; align-items: flex-start; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-radius: var(--radius); padding: 14px 16px; font-size: 13px; color: var(--ink); }
   .alert-icon { color: var(--accent-ink); font-size: 14px; line-height: 1.4; }
-  .ui-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .ui-table th, .ui-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
-  .ui-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); font-weight: 600; }
-  .ui-table tbody tr:last-child td { border-bottom: 0; }
-  .progress { height: 8px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+  .toast { display: flex; align-items: center; gap: 11px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface); padding: 12px 14px; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+  .toast-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+  .toast b { font-size: 13px; display: block; }
+  .toast > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .toast-x { color: var(--ink-faint); cursor: pointer; font-size: 16px; }
+  .progress { height: 8px; border-radius: 999px; background: var(--line-soft); overflow: hidden; display: block; }
   .progress span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  /* Menu + dialog */
+  .menu { border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface); padding: 6px; box-shadow: 0 8px 26px rgba(0,0,0,.08); align-self: start; }
+  .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 10px; border-radius: 8px; font-size: 13px; cursor: default; }
+  .menu-item.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-ink); }
+  .menu-k { font-size: 11px; color: var(--ink-faint); }
+  .menu-sep { height: 1px; background: var(--line-soft); margin: 6px 4px; }
+  .dialog { max-width: 380px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--surface); box-shadow: 0 16px 50px rgba(0,0,0,.16); overflow: hidden; }
+  .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+  .dialog-body { margin: 0; padding: 16px; font-size: 13px; color: var(--ink-mute); line-height: 1.55; }
+  .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line-soft); }
+  /* Brand asset templates */
+  .assets { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 620px) { .assets { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 920px) { .assets { grid-template-columns: 1fr 1fr 1fr; } }
+  .asset { display: block; text-align: left; padding: 0; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface); overflow: hidden; cursor: pointer; font-family: inherit; transition: border-color .14s ease, transform .14s ease; }
+  .asset:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .asset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .asset-frame { display: block; aspect-ratio: 16 / 10; background: var(--line-soft); position: relative; overflow: hidden; }
+  .asset-frame iframe { position: absolute; top: 0; left: 0; width: 200%; height: 200%; border: 0; transform: scale(.5); transform-origin: top left; pointer-events: none; background: #fff; }
+  .asset-meta { display: block; padding: 11px 13px; }
+  .asset-name { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+  .asset-open { font-size: 11px; color: var(--accent-ink); font-weight: 500; }
+  .asset-desc { display: block; font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+  /* Asset preview modal */
+  #ov-asset .ov-panel { top: 4vh; left: 50%; transform: translate(-50%,0) scale(.96); width: min(1120px, 94vw); height: 92vh; background: #fff; border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 16px 60px rgba(0,0,0,.42); }
+  #ov-asset.in .ov-panel { transform: translate(-50%,0) scale(1); }
+  .asset-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--surface); }
+  .asset-bar .ab-title { font-size: 14px; font-weight: 600; }
+  .asset-bar .ab-sub { font-size: 12px; color: var(--ink-faint); margin-left: 8px; font-weight: 400; }
+  .asset-modal-frame { flex: 1; width: 100%; border: 0; display: block; background: #fff; }
 
   .data-note { margin-top: 40px; color: var(--ink-faint); font-size: 12px; }
   .data-note code { font-family: var(--font-mono); }
@@ -1308,7 +1577,8 @@
     <section><h2 class="sec-title">${escapeHtml(tr('brandImageryLayout'))}</h2>${imageryHtml}</section>
   </div>
   ${gallery}
-  <section class="sec"><h2 class="sec-title">${escapeHtml(tr('brandComponentKit'))}</h2><p class="sec-sub">${escapeHtml(tr('brandComponentKitSub'))}</p>${kit}</section>
+  <section class="sec"><h2 class="sec-title">${escapeHtml(tr('brandComponentKit'))}</h2><p class="sec-sub">${escapeHtml(tr('dsKitSub'))}</p>${kit}</section>
+  ${assetsSection}
   <p class="data-note">${tr('brandDataNote')}</p>
 </div>
 <script type="application/json" id="od-design-system-data">${json}</script>
@@ -1386,6 +1656,37 @@
   });
   var va = document.getElementById('od-view-all');
   if (va) va.addEventListener('click', openG);
+
+  // Brand-asset tiles → full-page preview modal (re-uses the tile's own srcdoc).
+  var aov = null, aframe = null, atitle = null, asub = null;
+  function buildA() {
+    if (aov) return;
+    aov = mk('ov-asset');
+    var p = document.createElement('div'); p.className = 'ov-panel';
+    var bar = document.createElement('div'); bar.className = 'asset-bar';
+    var left = document.createElement('div');
+    atitle = document.createElement('span'); atitle.className = 'ab-title';
+    asub = document.createElement('span'); asub.className = 'ab-sub';
+    left.appendChild(atitle); left.appendChild(asub);
+    var x = document.createElement('button'); x.className = 'icon-x'; x.type = 'button'; x.innerHTML = '&times;'; x.setAttribute('aria-label', LBL.close);
+    x.addEventListener('click', function () { closeOv(aov); });
+    bar.appendChild(left); bar.appendChild(x);
+    aframe = document.createElement('iframe'); aframe.className = 'asset-modal-frame'; aframe.setAttribute('sandbox', ''); aframe.title = 'Asset preview';
+    p.appendChild(bar); p.appendChild(aframe); aov.appendChild(p);
+  }
+  function openA(doc, label, desc) {
+    buildA();
+    atitle.textContent = label || 'Preview';
+    asub.textContent = desc || '';
+    aframe.setAttribute('srcdoc', doc || '');
+    openOv(aov);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.asset'), function (el) {
+    el.addEventListener('click', function () {
+      var fr = el.querySelector('iframe');
+      openA(fr ? fr.getAttribute('srcdoc') : '', el.getAttribute('data-label'), el.getAttribute('data-desc'));
+    });
+  });
 })();
 </script>
 </body>

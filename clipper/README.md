@@ -87,15 +87,29 @@ Library and *Select from library* picker.
 of frames / text / images with live geometry, fills, strokes, corner radii and
 shadows) from the live page and stores it alongside the HTML asset. From the
 Library you can later **Download Figma JSON** for that asset, or use *Download Figma
-(.json)* in the clipper to grab it directly without saving to the Library. These
-JSON files do **not** import through Figma's normal file picker or by dragging
-them into Drafts; import them from inside Figma with the companion **OD Figma
-Import plugin** (`../figma-plugin/`).
+(.json)* in the clipper to grab it directly without saving to the Library.
+
+> ### ⚠️ The `.od-figma.json` is opened by a Figma plugin, not by dragging it in
+>
+> Figma only imports its own binary `.fig`/`.jam` files, so dragging an
+> `.od-figma.json` into Figma (or **Drafts**) shows **“Unsupported file format”** —
+> that is expected. Open it in **two steps** instead:
+>
+> 1. **Install the OD Figma Import plugin once** — in the Figma *desktop* app:
+>    **Plugins → Development → Import plugin from manifest…** → pick
+>    `figma-plugin/manifest.json`. (Same model as web-to-figma / html.to.design,
+>    which are also plugins.)
+> 2. **Run the plugin and open the file** — **Plugins → Development → OD Figma
+>    Import**, then drop in the downloaded `.od-figma.json`.
+>
+> Full instructions: [`../figma-plugin/README.md`](../figma-plugin/README.md).
 
 > A native binary `.fig` can't be produced outside Figma, so this is an import
 > JSON node-tree rebuilt as editable layers by the OD Figma plugin.
 > Fidelity is best-effort: cross-origin stylesheets that block reads, web-component
-> shadow DOM, and tainted canvases may degrade.
+> shadow DOM, and tainted canvases may degrade. Image fills in any web format
+> (SVG, WebP, GIF, …) are supported — the plugin re-encodes the ones Figma's image
+> API can't read (everything but PNG/JPEG) to PNG on import.
 
 Everything you capture appears in the Library tab (live, via SSE) with a
 **Clipper** source badge and a back-link to its source page.

@@ -124,7 +124,7 @@
            gaps, or the separators. The grip keeps its own grab/grabbing and the
            busy veil resets to default below. */
         cursor: pointer;
-        position: relative; /* containing block for the absolute .busy-veil */
+        position: relative; /* containing block + isolated stacking context */
         display: flex; align-items: center; gap: 2px; padding: 6px 8px;
         background: rgba(32,32,32,0.94);
         -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
@@ -196,16 +196,35 @@
         opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: 240ms;
       }
       .bar.dragging [data-tip]::after { opacity: 0; transition-delay: 0ms; }
-      /* Busy veil: while a capture is being saved, a spinner covers the bar and
-         its controls go inert — so the bar stays put as a steady reference point
-         instead of vanishing for the whole capture-and-save round-trip. */
-      .busy-veil {
-        position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-        border-radius: inherit; background: rgba(32,32,32,0.62); cursor: default;
-        -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+      /* Busy strip: while a capture is being saved the action buttons are
+         swapped IN PLACE for a spinner + a localized, step-by-step progress
+         readout (what's happening, which step, roughly how long). The bar stays
+         put as a steady reference point instead of vanishing, and — unlike the
+         old full-cover veil — the grip and close button stay live, so the bar
+         can still be repositioned or dismissed while the capture runs. */
+      .actions { display: flex; align-items: center; gap: 2px; }
+      .busy {
+        display: none; align-items: center; gap: 9px;
+        padding: 0 8px 0 6px; max-width: 280px; min-width: 0;
+        animation: odBusyIn 200ms cubic-bezier(0.23,1,0.32,1);
       }
-      .bar.busy .busy-veil { display: flex; }
-      .bar.busy > :not(.busy-veil) { pointer-events: none; }
+      @keyframes odBusyIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+      .bar.busy .actions { display: none; }
+      .bar.busy .busy { display: flex; }
+      .busy-text { display: flex; flex-direction: column; min-width: 0; }
+      .busy-title {
+        color: #fff; font: 600 12px/1.3 -apple-system, system-ui, sans-serif;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .busy-sub {
+        color: rgba(255,255,255,0.54); font: 500 10.5px/1.3 -apple-system, system-ui, sans-serif;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        transition: color 200ms cubic-bezier(0.23,1,0.32,1);
+      }
+      /* Past the expected wait the sub-line warms to amber + a soft pulse, so the
+         "still working, hang tight" reassurance reads as a deliberate state. */
+      .bar.busy-slow .busy-sub { color: rgba(255,206,120,0.95); animation: odBusyPulse 1.6s ease-in-out infinite; }
+      @keyframes odBusyPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.62; } }
       .spinner {
         width: 16px; height: 16px; border-radius: 50%;
         border: 2px solid rgba(255,255,255,0.22); border-top-color: #fff;
@@ -228,16 +247,24 @@
         </svg>
       </a>
       <span class="sep"></span>
-      ${btn('page', t('toolbarCapturePage'))}
-      ${btn('system', t('toolbarExtractDesignSystem'))}
-      ${btn('figma', t('toolbarDownloadFigma'))}
-      ${btn('shot', t('toolbarCaptureScreenshot'))}
-      ${btn('region', t('toolbarCaptureRegion'))}
-      ${btn('imgs', t('toolbarPickImages'))}
-      ${btn('element', t('toolbarPickElement'))}
+      <div class="actions">
+        ${btn('page', t('toolbarCapturePage'))}
+        ${btn('system', t('toolbarExtractDesignSystem'))}
+        ${btn('figma', t('toolbarDownloadFigma'))}
+        ${btn('shot', t('toolbarCaptureScreenshot'))}
+        ${btn('region', t('toolbarCaptureRegion'))}
+        ${btn('imgs', t('toolbarPickImages'))}
+        ${btn('element', t('toolbarPickElement'))}
+      </div>
+      <div class="busy" role="status" aria-live="polite">
+        <span class="spinner"></span>
+        <span class="busy-text">
+          <span class="busy-title"></span>
+          <span class="busy-sub"></span>
+        </span>
+      </div>
       <span class="sep"></span>
       <button class="close" data-act="close" data-tip="${esc(t('toolbarHide'))}" aria-label="${esc(t('toolbarHide'))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON.close}</svg></button>
-      <div class="busy-veil" aria-hidden="true"><span class="spinner"></span></div>
     </div>`);
   document.documentElement.appendChild(host);
 
@@ -311,16 +338,16 @@
       // itself; the spinner carries the rest (the slower save/build). No start
       // toast — it would only be hidden again for the capture frame; the spinner
       // is the in-progress signal and the result toast is the outcome.
-      setBusy(true);
+      startBusy(act);
       let res;
       try {
         res = await chrome.runtime.sendMessage({ type });
       } catch {
-        setBusy(false);
+        stopBusy();
         toast(t('extensionErrorReload'));
         return;
       }
-      setBusy(false);
+      stopBusy();
       if (!res || !res.ok) {
         toast(res && res.error === 'not running'
           ? t('openDesignStartApp')
@@ -351,13 +378,101 @@
   // move-vs-click threshold to get wrong.
   const grip = shadow.querySelector('.grip');
   const bar = shadow.querySelector('.bar');
+  const busyTitleEl = shadow.querySelector('.busy-title');
+  const busySubEl = shadow.querySelector('.busy-sub');
   let dragging = false;
-  let pointerStartX = 0, pointerStartY = 0, originLeft = 0, originTop = 0;
+  // Geometry is captured ONCE per drag (pointerdown) so pointermove never forces
+  // a synchronous layout read; motion is a compositor-only transform flushed in
+  // one rAF per frame, and the resting spot is committed to left/top on release.
+  let pointerStartX = 0, pointerStartY = 0;
+  let dragOriginLeft = 0, dragOriginTop = 0, dragMaxLeft = 0, dragMaxTop = 0;
+  let dragDX = 0, dragDY = 0, dragRaf = 0;
 
-  // Toggle the bar's spinner overlay for the lifetime of a capture-and-save, so
-  // the bar reads as "working" in place rather than disappearing.
-  function setBusy(on) {
-    bar.classList.toggle('busy', Boolean(on));
+  // --- busy / progress state ----------------------------------------------
+  // A capture is a single round-trip to the worker, so we can't read true
+  // progress — but a silent spinner breeds wait-anxiety. Instead each operation
+  // ships a short, localized SCRIPT of steps with rough timings: the label
+  // advances on a timer ("Reading styles…" → "Building asset…" → "Saving…"),
+  // the sub-line shows the step counter and a rough ETA, and once the wait
+  // crosses the expected budget the sub-line switches to a reassuring "still
+  // working, hang tight" message (busy-slow). The grip + close stay live the
+  // whole time so the bar can be moved or dismissed mid-capture.
+  let busyTimers = [];
+  const BUSY_PLANS = {
+    page:    { eta: 8,  slowAt: 14000, steps: [
+      { key: 'busyPageSnapshot', at: 0 },
+      { key: 'busyPageInline',   at: 1800 },
+      { key: 'busyPageSaving',   at: 6000 },
+    ] },
+    system:  { eta: 12, slowAt: 20000, steps: [
+      { key: 'busySystemReading',  at: 0 },
+      { key: 'busySystemExtract',  at: 2500 },
+      { key: 'busySystemBuilding', at: 9000 },
+      { key: 'busySystemSaving',   at: 15000 },
+    ] },
+    figma:   { eta: 10, slowAt: 16000, steps: [
+      { key: 'busyFigmaReading',   at: 0 },
+      { key: 'busyFigmaBuilding',  at: 2200 },
+      { key: 'busyFigmaPreparing', at: 8000 },
+    ] },
+    shot:    { eta: 4,  slowAt: 8000,  steps: [
+      { key: 'busyShotCapturing', at: 0 },
+      { key: 'busyShotSaving',    at: 1600 },
+    ] },
+    region:  { eta: 4,  slowAt: 8000,  steps: [
+      { key: 'busyRegionCapturing', at: 0 },
+      { key: 'busyRegionSaving',    at: 1600 },
+    ] },
+    element: { eta: 5,  slowAt: 9000,  steps: [
+      { key: 'busyElementCapturing', at: 0 },
+      { key: 'busyElementSaving',    at: 1600 },
+    ] },
+    imgs:    { eta: 6,  slowAt: 11000, steps: [
+      { key: 'busyImagesDownloading', at: 0 },
+      { key: 'busyImagesSaving',      at: 3000 },
+    ] },
+  };
+
+  function clearBusyTimers() {
+    busyTimers.forEach((id) => clearTimeout(id));
+    busyTimers = [];
+  }
+
+  // The busy strip widens the bar; if the user had dragged it near the right
+  // edge, re-clamp so it can't grow off-screen (and tuck back on stop).
+  function reclampIfMoved() {
+    if (savedPos && host.style.display !== 'none') {
+      applyPosition(clampToViewport(savedPos.left, savedPos.top));
+    }
+  }
+
+  function paintBusyStep(plan, idx, vars) {
+    busyTitleEl.textContent = t(plan.steps[idx].key, vars);
+    busySubEl.textContent =
+      t('busyStepOf', { step: idx + 1, total: plan.steps.length }) +
+      ' · ' + t('busyAbout', { sec: plan.eta });
+  }
+
+  function startBusy(opKey, vars) {
+    const plan = BUSY_PLANS[opKey] || BUSY_PLANS.shot;
+    clearBusyTimers();
+    bar.classList.remove('busy-slow');
+    paintBusyStep(plan, 0, vars);
+    bar.classList.add('busy');
+    reclampIfMoved();
+    for (let i = 1; i < plan.steps.length; i++) {
+      busyTimers.push(setTimeout(() => paintBusyStep(plan, i, vars), plan.steps[i].at));
+    }
+    busyTimers.push(setTimeout(() => {
+      bar.classList.add('busy-slow');
+      busySubEl.textContent = t('busyTakingLonger');
+    }, plan.slowAt));
+  }
+
+  function stopBusy() {
+    clearBusyTimers();
+    bar.classList.remove('busy-slow', 'busy');
+    reclampIfMoved();
   }
 
   // Does the bar's on-screen box intersect a capture rect (viewport coords)?
@@ -391,29 +506,53 @@
     savedPos = pos;
   }
 
+  // One transform write per frame: pointermove only records the (already
+  // clamped) delta and asks for a frame; the rAF callback is the sole place that
+  // touches the DOM, so a burst of move events collapses into a single paint.
+  function flushDrag() {
+    dragRaf = 0;
+    host.style.transform = `translate3d(${dragDX}px, ${dragDY}px, 0)`;
+  }
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    // The one and only layout read of the drag: cache the bar's box and the
+    // viewport clamp bounds so every subsequent move is pure arithmetic.
     const rect = host.getBoundingClientRect();
-    originLeft = rect.left;
-    originTop = rect.top;
+    dragOriginLeft = rect.left;
+    dragOriginTop = rect.top;
+    dragMaxLeft = Math.max(4, window.innerWidth - rect.width - 4);
+    dragMaxTop = Math.max(4, window.innerHeight - rect.height - 4);
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
+    dragDX = 0;
+    dragDY = 0;
+    // Anchor to explicit left/top and promote the bar to its own layer; from
+    // here the drag is a pure translate, so no layout runs per move.
+    host.style.right = 'auto';
+    host.style.bottom = 'auto';
+    host.style.left = `${dragOriginLeft}px`;
+    host.style.top = `${dragOriginTop}px`;
+    host.style.transform = 'translate3d(0,0,0)';
     dragging = true;
     bar.classList.add('dragging');
     try { grip.setPointerCapture(e.pointerId); } catch { /* capture is best-effort */ }
   });
   grip.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    applyPosition(clampToViewport(
-      originLeft + (e.clientX - pointerStartX),
-      originTop + (e.clientY - pointerStartY),
-    ));
+    const left = Math.min(Math.max(4, dragOriginLeft + (e.clientX - pointerStartX)), dragMaxLeft);
+    const top = Math.min(Math.max(4, dragOriginTop + (e.clientY - pointerStartY)), dragMaxTop);
+    dragDX = left - dragOriginLeft;
+    dragDY = top - dragOriginTop;
+    if (!dragRaf) dragRaf = requestAnimationFrame(flushDrag);
   });
   function endDrag(e) {
     if (!dragging) return;
     dragging = false;
     bar.classList.remove('dragging');
+    if (dragRaf) { cancelAnimationFrame(dragRaf); dragRaf = 0; }
     try { grip.releasePointerCapture(e.pointerId); } catch { /* may already be released */ }
+    // Bake the compositor transform back into a real left/top resting spot.
+    applyPosition(clampToViewport(dragOriginLeft + dragDX, dragOriginTop + dragDY));
     if (savedPos) {
       try {
         chrome.storage.local.set({ toolbarPos: savedPos });
@@ -651,8 +790,8 @@
   }
 
   // Screenshot the visible tab and crop to the element. The picker is torn down
-  // first; the bar wears a spinner (setBusy) through the whole save and only
-  // leaves the frame for the screenshot itself when it would land inside the
+  // first; the bar wears its progress strip (startBusy) through the whole save
+  // and only leaves the frame for the screenshot itself when it would land inside the
   // crop (hideBar → captureElement in background.js). So in the common case the
   // bar never blinks — it just shows it's working — instead of vanishing for the
   // entire capture-and-save round-trip as it used to.
@@ -667,7 +806,7 @@
     const html = (el.outerHTML || '').slice(0, 200000);
     const payloadRect = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
     endElementPick();
-    setBusy(true);
+    startBusy('element');
     const hideBar = barOverlapsRect(payloadRect);
     // Two frames so our torn-down picker surface is off the compositor before the
     // worker screenshots.
@@ -688,11 +827,11 @@
       });
     } catch (err) {
       console.warn('[Open Design] element capture failed', err);
-      setBusy(false);
+      stopBusy();
       toast(t('extensionErrorReload'));
       return;
     }
-    setBusy(false);
+    stopBusy();
     if (!res || !res.ok) {
       toast(res && res.error === 'not running'
         ? t('openDesignStartApp')
@@ -1136,10 +1275,10 @@
       saveBtn.disabled = true;
       saveBtn.textContent = t('saving');
       closeImagePicker();
-      // Spinner on the bar through the save, matching every other capture action.
+      // Progress on the bar through the save, matching every other capture
+      // action — the count rides into the busy label, so no separate toast.
       // ingestImages takes no screenshot, so the bar stays put — no blink.
-      setBusy(true);
-      toast(t('savingImages', { count: chosen.length }));
+      startBusy('imgs', { count: chosen.length });
       let res;
       try {
         res = await chrome.runtime.sendMessage({
@@ -1149,11 +1288,11 @@
           sourceTitle: document.title,
         });
       } catch {
-        setBusy(false);
+        stopBusy();
         toast(t('extensionErrorReload'));
         return;
       }
-      setBusy(false);
+      stopBusy();
       if (!res || !res.ok) {
         toast(res && res.error === 'not running'
           ? t('openDesignStartApp')
@@ -1277,7 +1416,7 @@
   async function commitRegionCapture(r) {
     const payloadRect = { x: r.x, y: r.y, width: r.w, height: r.h };
     endRegionPick();
-    setBusy(true);
+    startBusy('region');
     const hideBar = barOverlapsRect(payloadRect);
     // Two frames so our torn-down picker surface is off the compositor before
     // the worker screenshots.
@@ -1295,11 +1434,11 @@
         hideBar,
       });
     } catch {
-      setBusy(false);
+      stopBusy();
       toast(t('extensionErrorReload'));
       return;
     }
-    setBusy(false);
+    stopBusy();
     if (!res || !res.ok) {
       toast(res && res.error === 'not running'
         ? t('openDesignStartApp')
