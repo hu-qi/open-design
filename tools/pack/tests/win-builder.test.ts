@@ -138,6 +138,22 @@ describe("Windows pack artifact boundaries", () => {
       source.indexOf("cacheEntryPath: builtApp.cacheEntryPath"),
     );
   });
+
+  it("keeps NSIS payload archives on the fast LZMA2 path", async () => {
+    const source = await readFile(new URL("../src/win/custom-installer.ts", import.meta.url), "utf8");
+    expect(source).toContain('"nsis:payload-base-7z"');
+    expect(source).toContain('"-m0=LZMA2"');
+    expect(source).toContain('"-mf=off"');
+    expect(source).not.toContain('"-ms=off"');
+  });
+
+  it("invalidates Windows payload caches when the archive method changes", async () => {
+    const builderSource = await readFile(new URL("../src/win/builder.ts", import.meta.url), "utf8");
+    const payloadSource = await readFile(new URL("../src/win/payload.ts", import.meta.url), "utf8");
+    expect(builderSource).toContain("const WIN_NSIS_BASE_PAYLOAD_INPUT_HASH_CACHE_VERSION = 2");
+    expect(payloadSource).toContain("const WIN_LAUNCHER_PAYLOAD_BASE_CACHE_VERSION = 2");
+    expect(payloadSource).toContain("const WIN_LAUNCHER_PAYLOAD_ARCHIVE_CACHE_VERSION = 2");
+  });
 });
 
 async function createVersionedExecutable(packagedVersion: string): Promise<Buffer> {

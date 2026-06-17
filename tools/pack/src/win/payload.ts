@@ -17,12 +17,12 @@ import {
   resolveToolPackLauncherRoot,
 } from "../launcher-layout.js";
 import { readPackagedVersion } from "./manifest.js";
-import { resolveWinNsisOverlayRequiredPaths } from "./custom-installer.js";
+import { WIN_PAYLOAD_SEVEN_Z_CREATE_ARGS, resolveWinNsisOverlayRequiredPaths } from "./custom-installer.js";
 import type { WinBuiltAppManifest, WinPackTiming, WinPaths } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const WIN_LAUNCHER_PAYLOAD_BASE_CACHE_VERSION = 1;
-const WIN_LAUNCHER_PAYLOAD_ARCHIVE_CACHE_VERSION = 1;
+const WIN_LAUNCHER_PAYLOAD_BASE_CACHE_VERSION = 2;
+const WIN_LAUNCHER_PAYLOAD_ARCHIVE_CACHE_VERSION = 2;
 
 export type WinLauncherPayloadManifest = {
   channel: string;
@@ -148,7 +148,7 @@ export async function buildWinLauncherPayloadArchive(
     await rm(stageRoot, { force: true, recursive: true });
     await mkdir(payloadRoot, { recursive: true });
     await cp(builtApp.unpackedRoot, payloadRoot, { recursive: true });
-    await execFileAsync(winResources.sevenZipExe, ["a", "-t7z", "-mx=5", outputPath, ".\\*"], {
+    await execFileAsync(winResources.sevenZipExe, ["a", ...WIN_PAYLOAD_SEVEN_Z_CREATE_ARGS, outputPath, ".\\*"], {
       cwd: stageRoot,
       windowsHide: true,
     });

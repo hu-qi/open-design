@@ -33,6 +33,8 @@ const WIN_NSIS_OVERLAY_RELATIVE_PATHS = [
   "resources/open-design-config.json",
 ] as const;
 
+export const WIN_PAYLOAD_SEVEN_Z_CREATE_ARGS = ["-t7z", "-m0=LZMA2", "-mx=1", "-mf=off"] as const;
+
 function escapeNsisString(value: string): string {
   return value.replace(/\$/g, "$$").replace(/"/g, '$\\"').replace(/\r?\n/g, "$\\r$\\n");
 }
@@ -1150,9 +1152,7 @@ export async function buildWinNsisBasePayload(
     "nsis:payload-base-7z",
     [
       "a",
-      "-t7z",
-      "-mx=1",
-      "-ms=off",
+      ...WIN_PAYLOAD_SEVEN_Z_CREATE_ARGS,
       paths.installerBasePayloadPath,
       ".\\*",
       ...WIN_NSIS_OVERLAY_RELATIVE_PATHS.map((relativePath) => `-x!${normalizeArchivePath(relativePath)}`),
@@ -1186,9 +1186,7 @@ export async function buildWinNsisOverlayPayload(
         winResources.sevenZipExe,
         [
           "a",
-          "-t7z",
-          "-mx=1",
-          "-ms=off",
+          ...WIN_PAYLOAD_SEVEN_Z_CREATE_ARGS,
           paths.installerOverlayPayloadPath,
           ".\\*",
         ],
