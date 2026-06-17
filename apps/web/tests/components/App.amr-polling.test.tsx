@@ -310,6 +310,7 @@ describe('App AMR polling', () => {
   });
 
   it('rescans agents on window focus so external CLI auth changes are detected', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
     mockedFetchAmrModels.mockReset();
     mockedFetchAmrModels.mockResolvedValue({
       source: 'preset',
@@ -340,18 +341,26 @@ describe('App AMR polling', () => {
         },
       ]);
 
-    render(<App />);
+    try {
+      render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('codex-auth').textContent).toBe('missing');
-    });
+      await waitFor(() => {
+        expect(screen.getByTestId('codex-auth').textContent).toBe('missing');
+      });
 
-    fireEvent(window, new Event('focus'));
+      fireEvent(window, new Event('focus'));
+      expect(mockedFetchAgentsStream).toHaveBeenCalledTimes(1);
 
-    await waitFor(() => {
-      expect(mockedFetchAgentsStream).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId('codex-auth').textContent).toBe('ok');
-    });
+      nowSpy.mockReturnValue(10_001);
+      fireEvent(window, new Event('focus'));
+
+      await waitFor(() => {
+        expect(mockedFetchAgentsStream).toHaveBeenCalledTimes(2);
+        expect(screen.getByTestId('codex-auth').textContent).toBe('ok');
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('restarts AMR polling after sign-in when preset refresh previously stopped on a remote error', {

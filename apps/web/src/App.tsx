@@ -369,7 +369,7 @@ function AppInner() {
   const amrModelsRef = useRef<AmrModelsResponse | null>(null);
   const amrPollGenerationRef = useRef(0);
   const agentStreamRequestSeqRef = useRef(0);
-  const agentFocusRefreshLastRunRef = useRef(0);
+  const agentFocusRefreshLastRunRef = useRef(Date.now());
   const [amrPollRestartToken, setAmrPollRestartToken] = useState(0);
   const [providerModelsCache, setProviderModelsCache] = useState<
     Record<string, ProviderModelOption[]>
@@ -1802,17 +1802,30 @@ function AppInner() {
     });
   }, []);
 
-  const activeProject =
+  const loadedActiveProject =
     route.kind === 'project'
       ? (projects.find((p) => p.id === route.projectId) ?? null)
       : null;
+  const routeProjectPlaceholder = useMemo<Project | null>(() => {
+    if (route.kind !== 'project') return null;
+    const now = Date.now();
+    return {
+      id: route.projectId,
+      name: 'Untitled',
+      skillId: null,
+      designSystemId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, [route]);
+  const activeProject = loadedActiveProject ?? routeProjectPlaceholder;
 
   // Deep-linked route to a project we don't have yet (e.g. after a refresh
   // that finishes after the project list comes back). Fetch it in the
   // background so the view can render rather than bouncing to home.
   useEffect(() => {
     if (route.kind !== 'project') return;
-    if (activeProject) return;
+    if (loadedActiveProject) return;
     if (!projects.length && !daemonLive) return;
     if (projects.some((p) => p.id === route.projectId)) return;
     let cancelled = false;
@@ -1847,7 +1860,7 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [route, activeProject, projects, daemonLive, beginProjectListRequest, reconcileFetchedProjects]);
+  }, [route, loadedActiveProject, projects, daemonLive, beginProjectListRequest, reconcileFetchedProjects]);
 
   const openSettings = useCallback((
     section: SettingsSection = 'execution',
