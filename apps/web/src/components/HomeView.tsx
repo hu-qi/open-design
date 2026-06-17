@@ -65,8 +65,13 @@ import { inlineMentionToken, mentionTokenPresent } from '../utils/inlineMentions
 import { smoothScrollToTop } from '../utils/smoothScrollToTop';
 import { missingRequiredInputs, pluginInputsAreValid } from '../utils/pluginRequiredInputs';
 import { HomeHero, type ExamplePromptInfo, type HomeHeroHandle } from './HomeHero';
+import { Toast } from './Toast';
 import { findChip, HOME_HERO_CHIPS, type HomeHeroChip } from './home-hero/chips';
-import { consumePendingHomeChip, HOME_CHIP_INTENT_EVENT } from '../runtime/home-intent';
+import {
+  consumePendingHomeChip,
+  consumePendingHomeNotice,
+  HOME_CHIP_INTENT_EVENT,
+} from '../runtime/home-intent';
 import { requestNewBrandKit } from '../runtime/brand-intent';
 import { navigate } from '../router';
 import {
@@ -1446,6 +1451,10 @@ export function HomeView({
     if (plugins.length === 0) return;
     const chipId = consumePendingHomeChip();
     if (!chipId) return;
+    // A confirmation notice queued alongside the chip (e.g. "Using Ramp Brand
+    // Kit" from "Use in new chat") makes the navigate+apply visibly verifiable.
+    const notice = consumePendingHomeNotice();
+    if (notice) setHomeNotice(notice);
     const chip = findChip(chipId);
     if (chip) pickChip(chip);
     // pickChip / defaultDesignSystemTitle are recreated each render; this effect
@@ -1453,6 +1462,9 @@ export function HomeView({
     // already reflects the latest default design system.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plugins, chipIntentTick]);
+  // One-shot success confirmation surfaced as a toast after a brand "Use in new
+  // chat" lands on Home (cleared on dismiss / TTL).
+  const [homeNotice, setHomeNotice] = useState<string | null>(null);
 
   async function submit() {
     const trimmed = prompt.trim();
@@ -1844,6 +1856,15 @@ export function HomeView({
               </button>
             </DialogFooter>
         </Dialog>
+      ) : null}
+      {homeNotice ? (
+        <Toast
+          message={homeNotice}
+          tone="success"
+          placement="bottom"
+          ttlMs={3200}
+          onDismiss={() => setHomeNotice(null)}
+        />
       ) : null}
     </div>
   );

@@ -11,6 +11,7 @@ vi.mock('../../src/providers/registry', () => ({
 
 import { BrandPreviewCard } from '../../src/components/BrandPreviewCard';
 import { I18nProvider } from '../../src/i18n';
+import { consumePendingHomeChip, consumePendingHomeNotice } from '../../src/runtime/home-intent';
 
 const rampBrand: BrandSummary = {
   meta: {
@@ -83,5 +84,45 @@ describe('BrandPreviewCard', () => {
       expect((screen.getByTestId('brand-preview-open-project') as HTMLButtonElement).disabled).toBe(false);
       expect((screen.getByTestId('brand-preview-delete') as HTMLButtonElement).disabled).toBe(false);
     });
+  });
+
+  it('queues a visible confirmation notice naming the brand on Use in new chat', async () => {
+    // Drain any latched intent from a prior test so the assertion is clean.
+    consumePendingHomeChip();
+    consumePendingHomeNotice();
+
+    render(
+      <I18nProvider initial="en">
+        <BrandPreviewCard summary={rampBrand} variant="panel" onApplyDesignSystem={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('brand-preview-use'));
+
+    await waitFor(() => {
+      expect(consumePendingHomeChip()).toBe('prototype');
+    });
+    // The notice makes the otherwise-silent navigate+apply verifiable on Home.
+    expect(consumePendingHomeNotice()).toBe('Using Ramp');
+  });
+
+  it('shows a Needs input badge and hint when the backing run awaits the user', () => {
+    const blocked: BrandSummary = {
+      ...rampBrand,
+      meta: { ...rampBrand.meta, status: 'needs_input', designSystemId: undefined },
+    };
+
+    render(
+      <I18nProvider initial="en">
+        <BrandPreviewCard summary={blocked} variant="panel" onApplyDesignSystem={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText('Needs input')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Extraction paused — open the project to finish verification or answer the question.',
+      ),
+    ).toBeTruthy();
   });
 });

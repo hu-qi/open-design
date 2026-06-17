@@ -97,7 +97,16 @@ export interface Brand {
   layout: BrandLayout;
 }
 
-export type BrandStatus = 'extracting' | 'ready' | 'failed';
+/**
+ * Brand lifecycle as surfaced to every brand UI.
+ *   - `extracting`  : the backing extraction run is actively working.
+ *   - `needs_input` : the backing run paused for the user (a question form /
+ *     anti-bot wall). Reversible — flips back to `extracting` once the user
+ *     answers, so it is derived on read and never persisted.
+ *   - `ready`       : a brand kit was finalized + a design system registered.
+ *   - `failed`      : the backing run failed or was canceled/stopped by the user.
+ */
+export type BrandStatus = 'extracting' | 'needs_input' | 'ready' | 'failed';
 
 /** Server-written lifecycle record stored next to brand.json. */
 export interface BrandMeta {

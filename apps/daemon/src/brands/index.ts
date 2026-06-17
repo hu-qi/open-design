@@ -115,6 +115,17 @@ export interface StartBrandExtractionOptions {
    *  extraction (tests inject a stub to stay offline). Defaults to the live
    *  network prefetch. */
   prefetch?: PrefetchFn;
+  /** Upper bound on how long the start response will WAIT for the synchronous
+   *  programmatic finalize before returning and letting it finish in the
+   *  background. Fast origins still finalize within the budget (the instant
+   *  "aha"); slow / blocked origins return immediately on a skeleton and the
+   *  finalize continues in the background. Defaults to
+   *  `BRAND_PROGRAMMATIC_SYNC_BUDGET_MS`. */
+  programmaticSyncBudgetMs?: number;
+  /** Test/observability hook invoked with the background programmatic-extraction
+   *  promise whenever the start response returns before that work settles, so
+   *  callers (tests) can await completion deterministically. */
+  onBackgroundExtraction?: (settled: Promise<unknown>) => void;
 }
 
 export interface StartBrandExtractionResult {
@@ -290,14 +301,44 @@ export async function startBrandExtraction(
     };
     if (opts.dataDir) programmaticOptions.dataDir = opts.dataDir;
     if (opts.prefetch) programmaticOptions.prefetch = opts.prefetch;
-    try {
-      await withTimeout(runProgrammaticExtraction(programmaticOptions), PROGRAMMATIC_EXTRACT_TIMEOUT_MS);
-    } catch (err) {
+
+    // The full programmatic finalize (harvest + synthesize + register) keeps
+    // running to completion — but the start response only WAITS for it up to a
+    // short budget. A fast origin finalizes within the budget so the caller
+    // still lands on a ready, applyable design system (the instant "aha"); a
+    // slow / blocked origin returns immediately on the "Extracting…" skeleton
+    // and the finalize sediments the design system in the background, after
+    // which the next `GET /api/brands/:id` (or a `preview`/`finalize` call)
+    // reflects it. Best-effort: a failure leaves the brand `extracting` for the
+    // agent to drive. PROGRAMMATIC_EXTRACT_TIMEOUT_MS still caps the background
+    // work so a hanging origin can never leak a forever-pending promise.
+    const settled = withTimeout(
+      runProgrammaticExtraction(programmaticOptions),
+      PROGRAMMATIC_EXTRACT_TIMEOUT_MS,
+    ).catch((err) => {
       console.warn(`[brand] programmatic extraction failed for ${id} — falling back to agent`, err);
-    }
+      return null;
+    });
+    const budget = opts.programmaticSyncBudgetMs ?? BRAND_PROGRAMMATIC_SYNC_BUDGET_MS;
+    const finishedInBudget = await Promise.race([
+      settled.then(() => true),
+      sleep(budget).then(() => false),
+    ]);
+    if (!finishedInBudget) opts.onBackgroundExtraction?.(settled);
   }
 
   return { id, projectId, conversationId, sourceUrl: url };
+}
+
+/** How long `startBrandExtraction` waits for the synchronous programmatic
+ *  finalize before returning and letting it complete in the background. Tuned
+ *  to keep navigation snappy: fast sites still finalize in time for the instant
+ *  "aha", slow ones never block the user from entering the project. */
+const BRAND_PROGRAMMATIC_SYNC_BUDGET_MS = 1_200;
+
+/** Resolve after `ms`. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Upper bound on the synchronous programmatic-first extraction so a slow or

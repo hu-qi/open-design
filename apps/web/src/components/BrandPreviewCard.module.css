@@ -129,6 +129,12 @@
   border-color: var(--red-border);
 }
 
+.badgeNeedsInput {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
 .previewActions {
   display: flex;
   flex-shrink: 0;

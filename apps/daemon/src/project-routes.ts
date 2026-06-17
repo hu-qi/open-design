@@ -10,6 +10,7 @@ import { createProjectArtifactFile } from './artifact-create.js';
 import { ArtifactPublicationBlockedError } from './artifact-publication-guard.js';
 import { ArtifactRegressionError } from './artifact-stub-guard.js';
 import { listDesignSystems } from './design-systems.js';
+import { readMeta as readBrandMeta } from './brands/store.js';
 import {
   FIRST_PARTY_ATOMS,
   buildConnectorProbe,
@@ -756,7 +757,7 @@ function normalizeChatSessionMode(value: unknown): ChatSessionMode {
 export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDeps) {
   const { db, design } = ctx;
   const { sendApiError, createSseResponse } = ctx.http;
-  const { DESIGN_SYSTEMS_DIR, PROJECTS_DIR, SKILLS_DIR } = ctx.paths;
+  const { DESIGN_SYSTEMS_DIR, PROJECTS_DIR, SKILLS_DIR, BRANDS_DIR } = ctx.paths;
   const { readAppConfig, writeAppConfig } = ctx.appConfig;
   const { insertProject, validateLinkedDirs, getProject, updateProject, dbDeleteProject, removeProjectDir } = ctx.projectStore;
   const { writeProjectFile, readProjectFile, ensureProject, listFiles, listTabs, setTabs, resolveProjectDir } = ctx.projectFiles;
@@ -1032,11 +1033,14 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
           .filter((project: any) => projectVisibleForLocations(project, locations))
           .map((project: any) => ({
             ...project,
-            status: composeProjectDisplayStatus(
-              activeRunStatuses.get(project.id) ??
-                latestRunStatuses.get(project.id) ?? { value: 'not_started' },
-              awaitingInputProjects,
-              project.id,
+            status: brandAwareProjectStatus(
+              project,
+              composeProjectDisplayStatus(
+                activeRunStatuses.get(project.id) ??
+                  latestRunStatuses.get(project.id) ?? { value: 'not_started' },
+                awaitingInputProjects,
+                project.id,
+              ),
             ),
           })),
       };
@@ -1052,6 +1056,32 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       updatedAt: run.updatedAt,
       runId: run.id,
     };
+  }
+
+  // Brand-extraction projects are driven by a brand lifecycle (extracting →
+  // needs_input → ready / failed), not only by a chat run. When the run-derived
+  // status would be `not_started` — e.g. the programmatic-first finalize ran
+  // without a recorded chat run, or the daemon restarted and the in-memory run
+  // aged out — fall back to the brand's own status so Home / Designs never show
+  // a live brand extraction as "Not started". Run-derived status is kept
+  // whenever it is meaningful (queued/running/succeeded/failed/awaiting_input).
+  function brandAwareProjectStatus(project: any, status: { value: string; updatedAt?: number; runId?: string }) {
+    if (status.value !== 'not_started') return status;
+    const metadata = project?.metadata;
+    if (metadata?.kind !== 'brand') return status;
+    const brandId = typeof metadata.brandId === 'string' ? metadata.brandId : null;
+    if (!brandId) return status;
+    const brandMeta = readBrandMeta(BRANDS_DIR, brandId);
+    if (!brandMeta) return status;
+    const mapped =
+      brandMeta.status === 'ready'
+        ? 'succeeded'
+        : brandMeta.status === 'failed'
+          ? 'failed'
+          : brandMeta.status === 'needs_input'
+            ? 'awaiting_input'
+            : 'running'; // 'extracting'
+    return { ...status, value: mapped, updatedAt: status.updatedAt ?? brandMeta.updatedAt };
   }
 
   app.post('/api/projects', async (req, res) => {

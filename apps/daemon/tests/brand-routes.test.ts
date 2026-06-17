@@ -133,6 +133,96 @@ describe('brand routes', () => {
     expect(storedMeta.error).toBe('Brand extraction failed in the backing project.');
   });
 
+  it('reconciles extracting brands to failed when the backing run was canceled by the user', async () => {
+    writeBrandFixture('brand-canceled', {
+      projectId: 'project-canceled',
+      logoPrimary: 'logos/missing.svg',
+      status: 'extracting',
+    });
+    insertProject(db, {
+      id: 'project-canceled',
+      name: 'Canceled Brand Project',
+      skillId: null,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 1,
+      metadata: { kind: 'brand', brandId: 'brand-canceled' },
+    });
+    insertConversation(db, {
+      id: 'conversation-canceled',
+      projectId: 'project-canceled',
+      title: 'Extract brand',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    upsertMessage(db, 'conversation-canceled', {
+      id: 'message-canceled',
+      role: 'assistant',
+      content: 'Stopped.',
+      runId: 'run-canceled',
+      runStatus: 'canceled',
+      startedAt: 1,
+      endedAt: 2,
+    });
+
+    const detail = await requestJson('/api/brands/brand-canceled');
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.meta.status).toBe('failed');
+    expect(detail.body.meta.error).toBe('Brand extraction was canceled.');
+
+    const storedMeta = JSON.parse(readFileSync(path.join(brandsRoot, 'brand-canceled', 'meta.json'), 'utf8'));
+    expect(storedMeta.status).toBe('failed');
+  });
+
+  it('surfaces needs_input when the backing project is awaiting user input', async () => {
+    writeBrandFixture('brand-blocked', {
+      projectId: 'project-blocked',
+      logoPrimary: 'logos/missing.svg',
+      status: 'extracting',
+    });
+    insertProject(db, {
+      id: 'project-blocked',
+      name: 'Blocked Brand Project',
+      skillId: null,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 1,
+      metadata: { kind: 'brand', brandId: 'brand-blocked' },
+    });
+    insertConversation(db, {
+      id: 'conversation-blocked',
+      projectId: 'project-blocked',
+      title: 'Extract brand',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    // The agent paused on an anti-bot wall and asked the user via a question form.
+    upsertMessage(db, 'conversation-blocked', {
+      id: 'message-blocked',
+      role: 'assistant',
+      content: 'Please complete the Cloudflare check. <question-form><question>Done?</question></question-form>',
+      runId: 'run-blocked',
+      runStatus: 'running',
+      startedAt: 1,
+      endedAt: null,
+    });
+
+    const detail = await requestJson('/api/brands/brand-blocked');
+    const list = await requestJson('/api/brands');
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.meta.status).toBe('needs_input');
+    expect(list.body.brands.find((brand: any) => brand.meta.id === 'brand-blocked')?.meta.status).toBe(
+      'needs_input',
+    );
+
+    // needs_input is reversible — it must NOT be persisted (the user can still
+    // answer and resume extraction), unlike the terminal failed reconcile.
+    const storedMeta = JSON.parse(readFileSync(path.join(brandsRoot, 'brand-blocked', 'meta.json'), 'utf8'));
+    expect(storedMeta.status).toBe('extracting');
+  });
+
   function writeBrandFixture(
     id: string,
     options: { projectId?: string; logoPrimary: string; logoBody?: string; status?: string },

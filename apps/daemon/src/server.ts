@@ -5608,6 +5608,7 @@ export async function startServer({
     USER_DESIGN_TEMPLATES_DIR,
     SKILLS_DIR,
     USER_SKILLS_DIR,
+    BRANDS_DIR,
     PROMPT_TEMPLATES_DIR,
     BUNDLED_PETS_DIR,
     OD_BIN,

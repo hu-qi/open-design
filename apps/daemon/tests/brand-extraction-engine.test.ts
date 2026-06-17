@@ -834,4 +834,83 @@ describe('agent-driven brand extraction engine', () => {
     const html = readFileSync(path.join(projectsRoot, result.projectId, 'brand.html'), 'utf8');
     expect(html).toContain('"status":"extracting"');
   });
+
+  it('returns fast without blocking on a slow programmatic harvest, then finalizes in the background', async () => {
+    const db = openDatabase(tempDir, { dataDir: tempDir });
+
+    // A slow origin: the harvest takes far longer than the start response should
+    // ever wait. The user must still land in the project promptly.
+    const SLOW_MS = 1_500;
+    const stubPrefetch = async (_url: string, brandDir: string) => {
+      await new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+      const logosDir = path.join(brandDir, 'logos');
+      mkdirSync(logosDir, { recursive: true });
+      writeFileSync(
+        path.join(logosDir, 'header.svg'),
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40"><rect width="120" height="40" /></svg>',
+        'utf8',
+      );
+      return {
+        url: 'https://slow.com/',
+        finalUrl: 'https://slow.com/',
+        siteName: 'Slow',
+        title: 'Slow — eventually',
+        description: 'Slow makes things, eventually.',
+        colors: [
+          { hex: '#ffffff', count: 50 },
+          { hex: '#1a1a18', count: 30 },
+          { hex: '#d97757', count: 18 },
+        ],
+        fonts: [{ family: 'Inter', count: 22 }],
+        fontFaceFamilies: [],
+        googleFontsUrls: [],
+        fontFiles: [],
+        logos: [
+          { file: 'header.svg', sourceUrl: 'https://slow.com/', kind: 'inline-svg' as const, bytes: 120 },
+        ],
+        headings: ['Eventually'],
+        paragraphs: ['Slow makes things, eventually.'],
+        navLabels: [],
+        extraPages: [],
+        screenshot: null,
+        thin: false,
+        blocked: false,
+        materialMd: '',
+      };
+    };
+
+    let background: Promise<unknown> | null = null;
+    const startedAt = Date.now();
+    const result = await startBrandExtraction({
+      url: 'slow.com',
+      brandsRoot,
+      projectsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      userDesignSystemsRoot,
+      prefetch: stubPrefetch,
+      logoFallback: NO_LOGO_FALLBACK,
+      imageryFallback: NO_IMAGERY_FALLBACK,
+      // Keep the test snappy: a short sync budget, well under the slow harvest.
+      programmaticSyncBudgetMs: 200,
+      onBackgroundExtraction: (settled) => {
+        background = settled;
+      },
+    });
+    const elapsed = Date.now() - startedAt;
+
+    // The start response returned long before the slow harvest could finish.
+    expect(elapsed).toBeLessThan(SLOW_MS);
+    expect(background).not.toBeNull();
+
+    // At return time the brand is still extracting (skeleton page), so the user
+    // sees a progress state rather than waiting on the network.
+    expect(readBrandDetail(brandsRoot, result.id)?.meta.status).toBe('extracting');
+
+    // Once the background harvest settles, the brand finalizes to ready.
+    await background;
+    const detail = readBrandDetail(brandsRoot, result.id);
+    expect(detail?.meta.status).toBe('ready');
+    expect(detail?.meta.designSystemId?.startsWith('user:')).toBe(true);
+  });
 });

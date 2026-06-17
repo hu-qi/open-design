@@ -14,7 +14,12 @@ import path from 'node:path';
 
 import type { Application, Request, Response } from 'express';
 
-import { getProject, listLatestProjectRunStatuses, type insertProject } from './db.js';
+import {
+  getProject,
+  listLatestProjectRunStatuses,
+  listProjectsAwaitingInput,
+  type insertProject,
+} from './db.js';
 import { resolveProjectDir } from './projects.js';
 import {
   finalizeBrand,
@@ -227,6 +232,9 @@ type BrandRunStatus = {
 
 interface BrandStatusContext {
   latestByProject: Map<string, BrandRunStatus>;
+  /** Projects whose latest assistant turn is a still-unanswered question form
+   *  (anti-bot wall / clarifying question). Drives the reversible needs_input. */
+  awaitingInput: Set<string>;
 }
 
 function createBrandStatusContext(deps: BrandRoutesDeps): BrandStatusContext {
@@ -247,7 +255,7 @@ function createBrandStatusContext(deps: BrandRoutesDeps): BrandStatusContext {
       errorCode: run.errorCode ?? null,
     });
   }
-  return { latestByProject };
+  return { latestByProject, awaitingInput: listProjectsAwaitingInput(deps.db) };
 }
 
 function reconcileBrandSummaryStatus(
@@ -279,17 +287,25 @@ function reconcileBrandMetaStatus(
 ): BrandMeta {
   if (meta.status !== 'extracting' || !meta.projectId) return meta;
   const status = context.latestByProject.get(meta.projectId);
-  if (!status || (status.value !== 'failed' && status.value !== 'canceled')) return meta;
-  const error =
-    status.error
-    ?? (status.value === 'canceled'
-      ? 'Brand extraction was canceled.'
-      : 'Brand extraction failed in the backing project.');
-  return patchMeta(brandsRoot, meta.id, { status: 'failed', error }) ?? {
-    ...meta,
-    status: 'failed',
-    error,
-  };
+  if (status && (status.value === 'failed' || status.value === 'canceled')) {
+    const error =
+      status.error
+      ?? (status.value === 'canceled'
+        ? 'Brand extraction was canceled.'
+        : 'Brand extraction failed in the backing project.');
+    return patchMeta(brandsRoot, meta.id, { status: 'failed', error }) ?? {
+      ...meta,
+      status: 'failed',
+      error,
+    };
+  }
+  // The backing run paused on a question form (anti-bot wall / clarifying
+  // question). Surface it as needs_input WITHOUT persisting — answering the
+  // question resumes extraction, so the brand must be free to flip back.
+  if (context.awaitingInput.has(meta.projectId)) {
+    return { ...meta, status: 'needs_input' };
+  }
+  return meta;
 }
 
 function normalizeBrandRunStatus(status: string): string {

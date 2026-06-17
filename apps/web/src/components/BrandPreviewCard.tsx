@@ -222,6 +222,7 @@ export function BrandPreviewCard({
   const host = hostnameOf(meta.sourceUrl);
   const name = brand?.name?.trim() || host;
   const extracting = meta.status === 'extracting';
+  const needsInput = meta.status === 'needs_input';
   const failed = meta.status === 'failed';
   const ready = meta.status === 'ready';
   const projectId = meta.projectId;
@@ -342,12 +343,15 @@ export function BrandPreviewCard({
       // Default the new chat to the Prototype scenario: it surfaces the design
       // system field and is the most common brand-applied build, so the user
       // lands ready to generate with the brand instead of in the generic path.
-      requestHomeChip('prototype');
+      // Carry a confirmation notice so Home shows a visible "Using <brand>"
+      // banner — otherwise the navigate+apply is silent and the CTA reads as a
+      // no-op (the reported bug).
+      requestHomeChip('prototype', { notice: t('brand.appliedToChat', { name }) });
       navigate({ kind: 'home', view: 'home' });
     } finally {
       setBusy(false);
     }
-  }, [meta.designSystemId, busy, onApplyDesignSystem]);
+  }, [meta.designSystemId, busy, onApplyDesignSystem, t, name]);
 
   useEffect(() => {
     setBackingProjectMissing(false);
@@ -413,7 +417,11 @@ export function BrandPreviewCard({
         <div className={styles.previewHeadText}>
           <div className={styles.previewTitleRow}>
             <h2 className={styles.previewName}>{name}</h2>
-            {extracting ? (
+            {needsInput ? (
+              <span className={`${styles.badge} ${styles.badgeNeedsInput}`} role="status">
+                {t('brand.needsInput')}
+              </span>
+            ) : extracting ? (
               <span className={`${styles.badge} ${styles.badgeBusy}`} role="status">
                 {t('brand.extracting')}
               </span>
@@ -471,6 +479,12 @@ export function BrandPreviewCard({
       {backingProjectMissing ? (
         <div className={styles.missingProjectNotice} role="status">
           {t('project.missing')}
+        </div>
+      ) : null}
+
+      {needsInput ? (
+        <div className={styles.missingProjectNotice} role="status">
+          {t('brand.needsInputHint')}
         </div>
       ) : null}
 
