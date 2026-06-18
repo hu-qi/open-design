@@ -175,7 +175,7 @@ describe('brand routes', () => {
     expect(storedMeta.status).toBe('failed');
   });
 
-  it('keeps terminal backing run failure visible even if a stale finalize marked the brand ready', async () => {
+  it('keeps terminal backing run failure visible when a stale finalize left the terminal error', async () => {
     writeBrandFixture('brand-stale-ready', {
       projectId: 'project-stale-ready',
       logoPrimary: 'logos/missing.svg',
@@ -221,6 +221,51 @@ describe('brand routes', () => {
     const storedMeta = JSON.parse(readFileSync(path.join(brandsRoot, 'brand-stale-ready', 'meta.json'), 'utf8'));
     expect(storedMeta.status).toBe('failed');
     expect(storedMeta.error).toBe('Brand extraction was canceled.');
+  });
+
+  it('does not regress ready brands after a later backing project run is canceled', async () => {
+    writeBrandFixture('brand-ready', {
+      projectId: 'project-ready',
+      logoPrimary: 'logos/missing.svg',
+      status: 'ready',
+    });
+    insertProject(db, {
+      id: 'project-ready',
+      name: 'Ready Brand Project',
+      skillId: null,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 1,
+      metadata: { kind: 'brand', brandId: 'brand-ready' },
+    });
+    insertConversation(db, {
+      id: 'conversation-ready',
+      projectId: 'project-ready',
+      title: 'Iterate ready brand',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    upsertMessage(db, 'conversation-ready', {
+      id: 'message-ready-canceled',
+      role: 'assistant',
+      content: 'Stopped unrelated follow-up.',
+      runId: 'run-ready-canceled',
+      runStatus: 'canceled',
+      startedAt: 1,
+      endedAt: 2,
+    });
+
+    const detail = await requestJson('/api/brands/brand-ready');
+    const list = await requestJson('/api/brands');
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.meta.status).toBe('ready');
+    expect(detail.body.meta.error).toBeUndefined();
+    expect(list.body.brands.find((brand: any) => brand.meta.id === 'brand-ready')?.meta.status).toBe('ready');
+
+    const storedMeta = JSON.parse(readFileSync(path.join(brandsRoot, 'brand-ready', 'meta.json'), 'utf8'));
+    expect(storedMeta.status).toBe('ready');
+    expect(storedMeta.error).toBeUndefined();
   });
 
   it('surfaces needs_input when the backing project is awaiting user input', async () => {

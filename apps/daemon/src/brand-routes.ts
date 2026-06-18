@@ -288,11 +288,8 @@ function reconcileBrandMetaStatus(
   if (!meta.projectId) return meta;
   const status = context.latestByProject.get(meta.projectId);
   if (status && (status.value === 'failed' || status.value === 'canceled')) {
-    const error =
-      status.error
-      ?? (status.value === 'canceled'
-        ? 'Brand extraction was canceled.'
-        : 'Brand extraction failed in the backing project.');
+    const error = terminalBrandRunError(status);
+    if (!shouldReconcileTerminalBrandRun(meta, error)) return meta;
     if (meta.status === 'failed' && meta.error === error) return meta;
     return patchMeta(brandsRoot, meta.id, { status: 'failed', error }) ?? {
       ...meta,
@@ -308,6 +305,20 @@ function reconcileBrandMetaStatus(
     return { ...meta, status: 'needs_input' };
   }
   return meta;
+}
+
+function terminalBrandRunError(status: BrandRunStatus): string {
+  return (
+    status.error
+    ?? (status.value === 'canceled'
+      ? 'Brand extraction was canceled.'
+      : 'Brand extraction failed in the backing project.')
+  );
+}
+
+function shouldReconcileTerminalBrandRun(meta: BrandMeta, error: string): boolean {
+  if (meta.status === 'extracting') return true;
+  return meta.status === 'ready' && meta.error === error;
 }
 
 function normalizeBrandRunStatus(status: string): string {
