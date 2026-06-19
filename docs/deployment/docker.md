@@ -18,12 +18,24 @@ What this does:
 - Downloads the project
 - Moves into the folder that contains `docker-compose.yml`
 
-## Step 2: Choose an API auth mode
+## Step 2: Create `.env` and choose an API auth mode
 
-Edit `deploy/.env` and configure one of these before first start:
+Create `deploy/.env` from the tracked template:
 
-- recommended default: set `OD_API_TOKEN=` to a freshly generated token
-- trusted authenticated reverse proxy only: set `OPEN_DESIGN_DISABLE_API_AUTH=1`
+```bash
+cp .env.example .env
+```
+
+Generate a token if you want the default protected mode:
+
+```bash
+openssl rand -hex 32
+```
+
+Then edit `.env` and configure one of these before first start:
+
+- recommended default: paste the generated token into `OD_API_TOKEN=`
+- trusted authenticated reverse proxy only: leave `OD_API_TOKEN=` empty and set `OPEN_DESIGN_DISABLE_API_AUTH=1`
 
 If you expose Open Design through a reverse proxy, also set:
 
