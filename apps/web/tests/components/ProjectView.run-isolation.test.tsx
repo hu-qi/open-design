@@ -808,7 +808,9 @@ describe('ProjectView conversation run isolation', () => {
     await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(1));
     await waitFor(() => {
       const summary = screen.getByTestId('assistant-summary').textContent ?? '';
-      expect(summary).toContain(`${succeededAssistant.id}|succeeded|Looks good`);
+      expect(summary).toContain(
+        `${succeededAssistant.id}|${succeededAssistant.runStatus}|${succeededAssistant.content}`,
+      );
       expect(summary).toContain('|failed|');
     });
 
