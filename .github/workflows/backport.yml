@@ -31,8 +31,10 @@ jobs:
         uses: korthout/backport-action@v3
         with:
           github_token: ${{ steps.app.outputs.token }}
-          # A label like "backport release/v0.12.0" -> captures release/v0.12.0 as the target branch
-          label_pattern: '^backport ([^ ]+)$'
+          # A label like "backport release/v0.12.0" -> captures release/v0.12.0 as the target branch.
+          # Constrained to the release/vX.Y.Z contract so a typo like "backport main" or
+          # "backport feat/foo" does not match and is ignored (never handed to the release bot).
+          label_pattern: '^backport (release/v[0-9]+\.[0-9]+\.[0-9]+)$'
           merge_commits: skip
           pull_title: '[backport ${target_branch}] ${pull_title}'
           pull_description: 'Backport of #${pull_number} to `${target_branch}`.\n\n> Clean pick -> merge once CI is green. Conflict -> this is a draft, resolve conflicts then merge.'

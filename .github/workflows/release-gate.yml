@@ -32,6 +32,12 @@ jobs:
           BR: ${{ inputs.release_branch }}
         run: |
           set -euo pipefail
+          # Constrain the input to the release/vX.Y.Z grammar first. Any other branch (e.g. main)
+          # must never pass the gate, even if it exists and happens to have no open PRs targeting it.
+          if ! printf '%s' "$BR" | grep -Eq '^release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid release branch '$BR' (expected release/vX.Y.Z)"
+            exit 1
+          fi
           # Fail closed: the branch must actually exist. A mistyped or not-yet-cut branch makes
           # `gh pr list` return an empty list, which would otherwise look like "clean / safe".
           if ! gh api "repos/$REPO/git/ref/heads/$BR" >/dev/null 2>&1; then
