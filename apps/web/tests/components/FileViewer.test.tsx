@@ -786,6 +786,38 @@ describe('FileViewer SVG artifacts', () => {
     expect(markup).toContain('sandbox="allow-scripts allow-downloads"');
   });
 
+  it('does not treat slide-prefixed helper classes as deck slides', () => {
+    const file = baseFile({
+      name: 'page.html',
+      path: 'page.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Page',
+        entry: 'page.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={file}
+        liveHtml={
+          '<html><body><div class="slide-meta">1 / 12</div><div class="slide-number">1</div></body></html>'
+        }
+      />,
+    );
+
+    expect(markup).toContain('data-testid="artifact-preview-frame"');
+    expect(markup).toContain('data-od-render-mode="url-load" data-od-active="true"');
+    expect(markup).not.toContain('class="deck-nav"');
+  });
+
   it('reloads a URL-loaded HTML preview with a new cache key without replacing the iframe', () => {
     const file = baseFile({
       name: 'page.html',
@@ -1466,7 +1498,10 @@ describe('FileViewer SVG artifacts', () => {
     expect(screen.getByRole('menuitem', { name: /Deploy to Vercel/i })).toBeTruthy();
     fireEvent.click(screen.getByRole('menuitem', { name: /Deploy to Cloudflare Pages/i }));
 
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByRole('heading', { name: /Deploy to Cloudflare Pages/i })).toBeTruthy();
+    expect(within(dialog).queryByRole('heading', { name: /Publish share page/i })).toBeNull();
     const backdrop = document.body.querySelector('.viewer-modal-backdrop.deploy-flow-backdrop');
     expect(backdrop).toBeTruthy();
     expect(backdrop?.parentElement).toBe(document.body);
@@ -2535,7 +2570,10 @@ describe('FileViewer SVG artifacts', () => {
     expect(document.querySelector('.share-menu-social-grid')).toBeNull();
     fireEvent.click(socialShareItem);
 
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByRole('heading', { name: /Publish share page/i })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /Publish share page/i })).toBeTruthy();
     expect(await screen.findByRole('link', { name: 'X' })).toBeTruthy();
     expect(screen.getAllByText('https://vercel.example').length).toBeGreaterThan(0);
   });
@@ -2599,8 +2637,9 @@ describe('FileViewer SVG artifacts', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toBeTruthy();
+    expect(within(dialog).getByRole('heading', { name: /Publish share page/i })).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'X' })).toBeNull();
-    const deployButtons = within(dialog).getAllByRole('button', { name: /^Deploy$/i });
+    const deployButtons = within(dialog).getAllByRole('button', { name: /Publish share page/i });
     fireEvent.click(deployButtons[deployButtons.length - 1]!);
 
     expect(await screen.findByRole('link', { name: 'X' })).toBeTruthy();
@@ -2665,7 +2704,9 @@ describe('FileViewer SVG artifacts', () => {
     const socialShareItem = await screen.findByRole('menuitem', { name: /social share/i });
     fireEvent.click(socialShareItem);
 
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByRole('heading', { name: /Publish share page/i })).toBeTruthy();
     expect(await screen.findByRole('link', { name: 'X' })).toBeTruthy();
     expect(screen.getAllByText(/requiring authentication/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText('https://protected.vercel.example').length).toBeGreaterThan(0);

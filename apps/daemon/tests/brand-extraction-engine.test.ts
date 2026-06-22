@@ -18,7 +18,7 @@ import {
 } from '../src/brands/index.js';
 import { patchMeta } from '../src/brands/store.js';
 import { ensureLogoFallback } from '../src/brands/logo-fallback.js';
-import { listDesignSystems } from '../src/design-systems.js';
+import { listDesignSystems } from '../src/design-systems/index.js';
 import {
   adoptExistingImagery,
   findImageRefs,

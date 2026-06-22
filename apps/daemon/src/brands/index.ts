@@ -35,7 +35,7 @@ import {
   linkUserDesignSystemProject,
   updateUserDesignSystem,
   type UserDesignSystemInput,
-} from '../design-systems.js';
+} from '../design-systems/index.js';
 import {
   getProject,
   insertConversation,

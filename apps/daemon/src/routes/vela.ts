@@ -223,11 +223,38 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
           loginAttribution = withoutDeviceId;
         }
       }
-      const spawned = await spawnVelaLogin({
-        configuredEnv,
-        attribution: loginAttribution,
-        defaultApiUrl: velaApiProxyBaseUrl(req, getPublicBaseUrl),
-      });
+      // Start device authorization over a direct connection first. The
+      // daemon-local IPv4 proxy (added in #4210 for hosts whose direct
+      // amr-api.open-design.ai edge path is broken, #3726) re-originates the
+      // request through the daemon. Behind a corporate transparent proxy that
+      // hijacks amr-api.open-design.ai onto an internal gateway (e.g.
+      // 飞连/CorpLink → 30.x), that extra hop makes the upstream lose the
+      // client IP and reject device authorization with
+      // "502: Invalid IP address: undefined", even though the direct path
+      // resolves fine. So only fall back to the proxy when the direct attempt
+      // fails to start — never when a login is already in flight.
+      let spawned;
+      try {
+        spawned = await spawnVelaLogin({
+          configuredEnv,
+          attribution: loginAttribution,
+          // Block until the direct attempt reaches device-auth steady state or
+          // exits/errors before it, so a direct failure that arrives AFTER the
+          // 250ms startup grace (the common shape on a broken edge path) still
+          // falls through to the proxy retry below instead of returning 202.
+          waitForActivation: true,
+        });
+      } catch (directErr) {
+        const directMessage =
+          directErr instanceof Error ? directErr.message : String(directErr);
+        if (/already running/i.test(directMessage)) throw directErr;
+        spawned = await spawnVelaLogin({
+          configuredEnv,
+          attribution: loginAttribution,
+          defaultApiUrl: velaApiProxyBaseUrl(req, getPublicBaseUrl),
+          waitForActivation: true,
+        });
+      }
       res.status(202).json(spawned);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -11,6 +11,7 @@ import type {
   AnalyticsConfigureGlobals,
   TrackingConfigureAvailability,
   TrackingConfigureType,
+  TrackingRuntimeType,
 } from './public-params.js';
 
 // ---- Event names ---------------------------------------------------------
@@ -37,6 +38,7 @@ export type AnalyticsEventName =
   | 'file_upload_result'
   // Artifact
   | 'artifact_export_result'
+  | 'artifact_deploy_result'
   // Feedback
   | 'feedback_submit_result'
   | 'assistant_feedback_click'
@@ -222,6 +224,10 @@ export type TrackingArtifactKind =
   | 'doc'
   | 'unknown';
 
+// NOTE: vercel / cloudflare_pages are intentionally NOT here. Deploy attempts
+// used to ride artifact_export_result with those formats, but that only ever
+// meant "deploy popover opened", never a real publish. Real deploys are now
+// tracked exclusively by artifact_deploy_result (see TrackingDeployProvider).
 export type TrackingExportFormat =
   | 'pdf'
   | 'pptx'
@@ -231,9 +237,7 @@ export type TrackingExportFormat =
   | 'markdown'
   | 'template'
   | 'share_link'
-  | 'share_page'
-  | 'vercel'
-  | 'cloudflare_pages';
+  | 'share_page';
 
 export type TrackingResult = 'success' | 'failed';
 export type TrackingRunResult = 'success' | 'failed' | 'cancelled';
@@ -257,7 +261,9 @@ export type TrackingRunFailureDetail =
   | 'stale_profile'
   | 'refresh_token_reused'
   | 'missing_api_key'
+  | 'invalid_api_key'
   | 'hard_quota'
+  | 'workspace_credits_exhausted'
   | 'rate_limit_429'
   | 'amr_insufficient_balance'
   | 'model_not_found'
@@ -277,6 +283,7 @@ export type TrackingRunFailureDetail =
   | 'tool_error'
   | 'plugin_artifact_missing'
   | 'cli_not_installed'
+  | 'git_bash_missing'
   | 'agent_config_invalid'
   | 'spawn_failed'
   | 'spawn_enoexec'
@@ -483,11 +490,10 @@ export type TrackingOnboardingStepName =
 // hosted offering the doc references; today the UI ships only
 // `local_cli` (Local Coding Agent) and `byok` (own model key). `none`
 // stamps the click events fired before any runtime was picked.
-export type TrackingOnboardingRuntimeType =
-  | 'amr_cloud'
-  | 'local_cli'
-  | 'byok'
-  | 'none';
+// Onboarding's runtime pick is the same closed set as the global
+// `runtime_type` public param; alias to the single source of truth so the
+// two never drift.
+export type TrackingOnboardingRuntimeType = TrackingRuntimeType;
 
 // What kind of source material the user pinned in the design-system
 // step. `text` covers the brand description textarea; `mixed` is
@@ -1273,6 +1279,7 @@ export interface ProjectsListControlsClickProps {
     | 'your_designs'
     | 'search_input'
     | 'select'
+    | 'refresh'
     | 'create_project'
     | 'grid_view'
     | 'list_view';
@@ -2065,7 +2072,10 @@ export interface PresentPopoverClickProps {
 export interface ShareOptionPopoverClickProps {
   page_name: 'artifact';
   area: 'share_option_popover';
-  element: TrackingExportFormat;
+  // Export/share formats, plus 'publish_required_guide' for the share-intent
+  // signal: the user opened Share wanting a link but the artifact isn't
+  // deployed yet, so only the "publish online first" guide row is shown.
+  element: TrackingExportFormat | 'publish_required_guide';
   artifact_id: string;
   artifact_kind: TrackingArtifactKind;
   project_id: string;
@@ -2624,7 +2634,16 @@ export interface RunCreatedProps {
   // own default was selected; use `modelIdForTracking` to bucket null/empty
   // into `'default'` at every emit site.
   model_id: string;
-  agent_provider_id: TrackingCliProviderId;
+  // CLI providers for daemon-executed runs; BYOK providers for runs streamed
+  // client-side against the user's own key (those never reach a local CLI).
+  agent_provider_id: TrackingCliProviderId | TrackingByokProviderId;
+  // The runtime this run launched with, stamped on the event so it cannot
+  // drift. Normally `runtime_type` rides on the global super-property, but the
+  // active runtime can change mid-stream (e.g. the user flips the avatar-menu
+  // mode while a BYOK turn is in flight), which would split one run across
+  // buckets. Client-side BYOK emits set this explicitly; daemon run events
+  // already pin it. Omit to inherit the global value.
+  runtime_type?: TrackingRuntimeType;
   skill_id: string | null;
   mcp_id: string | null;
   // Composer mode the prompt was sent in. `ask` is the lighter Q&A mode
@@ -2666,7 +2685,19 @@ export interface RunFinishedProps extends Omit<RunCreatedProps, 'area'> {
   tool_call_seen?: boolean;
   artifact_write_seen?: boolean;
   live_artifact_seen?: boolean;
+  // Distinct artifact files this run produced OR edited (created + modified),
+  // measured agent-agnostically by a filesystem snapshot diff in the daemon
+  // (`run-artifact-fs.ts`). An edit-only turn that rewrites an existing file
+  // still reports >0 — the directory's file count is unchanged but the run did
+  // produce artifact work. Replaces the tool-stream-derived count, which only
+  // `claude_code` reported in a recognized shape.
   artifact_count: number;
+  // Breakdown of `artifact_count`. `artifacts_created` (new files) approximates
+  // an activation signal; `artifacts_modified` (existing files edited)
+  // approximates an iteration / engagement signal. Optional: emitted only when
+  // the daemon captured a baseline snapshot for the run.
+  artifacts_created?: number;
+  artifacts_modified?: number;
   // True when the run raised a `<question-form>` clarification. Such runs
   // are intent-clarification turns (the agent stops to ask the user a question)
   // and therefore inherently produce no artifact, so the dashboard can exclude
@@ -2839,6 +2870,32 @@ export interface ArtifactExportResultProps {
   project_kind: TrackingProjectKind | null;
 }
 
+export type TrackingDeployProvider = 'vercel' | 'cloudflare_pages';
+
+// Fired from the deploy modal when a real publish attempt resolves — NOT when
+// the modal merely opens (that path is `artifact_export_result` with
+// export_format vercel/cloudflare_pages and only means "popover opened").
+// `result` is 'success' once the provider accepts the deploy (the link may
+// still be delayed/protected), 'failed' on a hard error or missing config.
+export interface ArtifactDeployResultProps {
+  page_name: 'artifact';
+  area: 'deploy_modal';
+  artifact_id: string;
+  artifact_kind: TrackingArtifactKind;
+  provider: TrackingDeployProvider;
+  result: TrackingExportResult;
+  // True when this attempt saved a new/changed token (the user actually
+  // entered a key this run), so "configured a key AND deployed" is queryable.
+  saved_new_token: boolean;
+  // True when the provider had no saved, configured credentials before this
+  // attempt — i.e. this is a first-time setup-and-deploy.
+  first_configure: boolean;
+  error_code?: string;
+  deploy_duration_ms: number;
+  project_id: string;
+  project_kind: TrackingProjectKind | null;
+}
+
 export interface FeedbackSubmitResultProps {
   page_name: 'chat_panel';
   area: 'chat_panel';
@@ -3001,6 +3058,7 @@ export type AnalyticsEventPayload =
   | { event: 'update_apply_observed'; props: UpdateApplyObservedProps }
   | { event: 'file_upload_result'; props: FileUploadResultProps }
   | { event: 'artifact_export_result'; props: ArtifactExportResultProps }
+  | { event: 'artifact_deploy_result'; props: ArtifactDeployResultProps }
   | { event: 'feedback_submit_result'; props: FeedbackSubmitResultProps }
   | { event: 'assistant_feedback_click'; props: AssistantFeedbackClickProps }
   | {
@@ -3396,10 +3454,42 @@ export function deriveConfigureGlobals(
     configureAvailability = 'unknown';
   }
 
+  // The single active runtime — NOT the configure cascade, so there is no
+  // 'both'. The active execution path is steered by `mode` (the user's
+  // selected execution mode) first, then the selected agent: the bundled
+  // `amr` agent id means AMR cloud; otherwise local CLI when one is the
+  // selected/available runtime. BYOK only surfaces when `mode === 'api'` or a
+  // saved key is visible — the daemon never sees a key (mode is pinned to
+  // 'daemon' there), so daemon-side run events rely on the web client's
+  // run-request override to report 'byok'. Falls back through the same
+  // capability signals as configure_type for the ambient (no-mode) case.
+  let runtimeType: TrackingRuntimeType;
+  if (input.mode === 'api') {
+    // `api` mode IS the active BYOK execution path. It must win over a
+    // remembered `agentId === 'amr'`: switching AMR → BYOK only flips
+    // `config.mode` and leaves `config.agentId` as 'amr' (see App.tsx mode
+    // switch), so checking agentId first would mislabel live BYOK runs as
+    // amr_cloud.
+    runtimeType = 'byok';
+  } else if (input.agentId === 'amr') {
+    runtimeType = 'amr_cloud';
+  } else if (input.mode === 'daemon' && selectedAgentAvailable) {
+    runtimeType = 'local_cli';
+  } else if (hasAvailableCli) {
+    runtimeType = 'local_cli';
+  } else if (byokSignal) {
+    runtimeType = 'byok';
+  } else if (amrAuthorized) {
+    runtimeType = 'amr_cloud';
+  } else {
+    runtimeType = 'none';
+  }
+
   return {
     has_available_configure_cli: hasAvailableCli,
     configure_type: configureType,
     configure_availability: configureAvailability,
+    runtime_type: runtimeType,
     // Independent per-path runnable flags (no cascade masking — see
     // AnalyticsConfigureGlobals). `cli_runnable` mirrors
     // `has_available_configure_cli`; `byok_runnable` uses the actually-saved
