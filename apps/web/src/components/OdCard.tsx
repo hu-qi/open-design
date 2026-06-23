@@ -41,9 +41,10 @@ function hashRuleProposalKey(input: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function ruleProposalStorageKey(card: OdCardRuleProposal): string {
+function ruleProposalStorageKey(card: OdCardRuleProposal, instanceScope?: string): string {
   return `${RULE_PROPOSAL_DECISION_PREFIX}${hashRuleProposalKey(
     JSON.stringify([
+      instanceScope ?? '',
       card.name,
       card.description ?? '',
       card.assertion,
@@ -81,7 +82,7 @@ function writeRuleProposalDecision(key: string, decision: Exclude<RuleProposalDe
   }
 }
 
-export function OdCardView({ card }: { card: OdCard }) {
+export function OdCardView({ card, instanceScope }: { card: OdCard; instanceScope?: string }) {
   switch (card.kind) {
     case 'task-brief':
       return <TaskBriefCard card={card} />;
@@ -90,7 +91,7 @@ export function OdCardView({ card }: { card: OdCard }) {
     case 'verify-scorecard':
       return <VerifyScorecardCard card={card} />;
     case 'rule-proposal':
-      return <RuleProposalCard card={card} />;
+      return <RuleProposalCard card={card} instanceScope={instanceScope} />;
     default:
       return null;
   }
@@ -249,9 +250,18 @@ function VerifyScorecardCard({ card }: { card: OdCardVerifyScorecard }) {
 // `type:'rule'` memory entry to /api/memory (same shape as MemorySection's
 // saveMemoryEntry); future verify passes then enforce it. "Edit" opens the
 // same fields inline editable before saving; "Discard" dismisses locally.
-function RuleProposalCard({ card }: { card: OdCardRuleProposal }) {
+function RuleProposalCard({
+  card,
+  instanceScope,
+}: {
+  card: OdCardRuleProposal;
+  instanceScope?: string;
+}) {
   const t = useT();
-  const storageKey = useMemo(() => ruleProposalStorageKey(card), [card]);
+  const storageKey = useMemo(
+    () => ruleProposalStorageKey(card, instanceScope),
+    [card, instanceScope],
+  );
   const [decision, setDecision] = useState<RuleProposalDecision>(() =>
     readRuleProposalDecision(storageKey),
   );

@@ -16,10 +16,10 @@ const RULE_CARD: OdCardRuleProposal = {
   rationale: 'The user corrected off-palette colors.',
 };
 
-function renderRuleCard(card: OdCardRuleProposal = RULE_CARD) {
+function renderRuleCard(card: OdCardRuleProposal = RULE_CARD, instanceScope = 'scope-a') {
   return render(
     <I18nProvider initial="en">
-      <OdCardView card={card} />
+      <OdCardView card={card} instanceScope={instanceScope} />
     </I18nProvider>,
   );
 }
@@ -67,5 +67,18 @@ describe('OdCard rule proposal decisions', () => {
 
     expect(screen.queryByText('Palette only')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Keep' })).toBeNull();
+  });
+
+  it('does not reuse discarded decisions across scoped card instances', () => {
+    const first = renderRuleCard(RULE_CARD, 'project-a:conversation-a:message-a:card-a');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(screen.queryByText('Palette only')).toBeNull();
+    first.unmount();
+
+    renderRuleCard(RULE_CARD, 'project-b:conversation-b:message-b:card-a');
+
+    expect(screen.getByText('Palette only')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Keep' })).toBeTruthy();
   });
 });
