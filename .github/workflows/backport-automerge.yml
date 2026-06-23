@@ -59,10 +59,17 @@ jobs:
           # commit (resolving a conflict, fixing a failing test), that commit's committer is NOT
           # github-actions[bot], so pristine=false and the auto-approve/merge below are skipped:
           # those commits were never reviewed, so the PR must go through human review instead.
-          # Fail closed: any lookup miss / empty list -> pristine=false.
-          pristine="$(gh api "repos/$REPO/pulls/$num/commits?per_page=100" \
-                        --jq 'if (length > 0) and (all(.[]; (.committer.login // "") == "github-actions[bot]")) then "true" else "false" end' \
-                        2>/dev/null || echo false)"
+          # Paginate across ALL commits (--paginate) — a >100-commit PR must not pass on the
+          # strength of its first page; one non-bot committer anywhere fails it. -F/-x match the
+          # literal "github-actions[bot]" (the [..] is not a regex class). Fail closed: empty list
+          # or any lookup miss -> not pristine.
+          logins="$(gh api "repos/$REPO/pulls/$num/commits?per_page=100" --paginate \
+                      --jq '.[].committer.login // "none"' 2>/dev/null || true)"
+          if [ -n "$logins" ] && ! printf '%s\n' "$logins" | grep -Fqvx 'github-actions[bot]'; then
+            pristine=true
+          else
+            pristine=false
+          fi
           {
             echo "found=true"
             echo "number=$(printf '%s' "$row" | jq -r .number)"
