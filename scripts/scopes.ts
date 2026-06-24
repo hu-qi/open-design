@@ -40,6 +40,7 @@ type GitHubEvent = {
   inputs?: {
     ci_mode?: string;
     runner_poc?: boolean | string;
+    runner_perf_probe?: boolean | string;
   };
 };
 
@@ -72,11 +73,11 @@ function createScopePlan(): ScopePlan {
 
   const eventName = requiredEnv("GITHUB_EVENT_NAME");
   const ciMode = resolveCiMode(eventName);
-  const runnerPoc = isRunnerPoc(eventName);
+  const manualProbeOnly = isRunnerPoc(eventName) || isRunnerPerfProbe(eventName);
 
-  if (runnerPoc) {
-    // The persistent runner POC is a workflow-routing probe. Keep normal CI
-    // scopes empty so the workflow only runs the dedicated POC job plus the
+  if (manualProbeOnly) {
+    // Manual runner probes are workflow-routing experiments. Keep normal CI
+    // scopes empty so the workflow only runs the dedicated probe jobs plus the
     // static/aggregate control jobs.
   } else if (eventName === "pull_request") {
     for (const file of changedPullRequestFiles()) {
@@ -111,7 +112,7 @@ function createScopePlan(): ScopePlan {
 
   return {
     ...outputs,
-    ...createRunPlan(outputs, ciMode, runnerPoc),
+    ...createRunPlan(outputs, ciMode, manualProbeOnly),
     ui_p0_matrix: JSON.stringify(uiP0CiMatrix),
     visual_matrix: JSON.stringify(visualCiMatrix),
   };
@@ -170,6 +171,12 @@ function isRunnerPoc(eventName: string): boolean {
   if (eventName !== "workflow_dispatch") return false;
   const event = JSON.parse(readFileSync(requiredEnv("GITHUB_EVENT_PATH"), "utf8")) as GitHubEvent;
   return event.inputs?.runner_poc === true || event.inputs?.runner_poc === "true";
+}
+
+function isRunnerPerfProbe(eventName: string): boolean {
+  if (eventName !== "workflow_dispatch") return false;
+  const event = JSON.parse(readFileSync(requiredEnv("GITHUB_EVENT_PATH"), "utf8")) as GitHubEvent;
+  return event.inputs?.runner_perf_probe === true || event.inputs?.runner_perf_probe === "true";
 }
 
 function changedPullRequestFiles(): string[] {
