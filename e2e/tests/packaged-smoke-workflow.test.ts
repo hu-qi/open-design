@@ -295,7 +295,7 @@ describe("packaged smoke workflow", () => {
     });
   });
 
-  it("[P2] keeps the lightweight unit workspace check on GitHub hosted runners", async () => {
+  it("[P2] keeps lightweight and web workspace checks off self-hosted runners", async () => {
     const workflow = await readFile(ciWorkflowPath, "utf8");
     const workspaceUnitTests = sectionBetween(workflow, "  workspace_unit_tests:", "  windows_tools_pack_payload_tests:");
     const webWorkspaceTests = sectionBetween(workflow, "  web_workspace_tests:", "  e2e_vitest:");
@@ -303,8 +303,9 @@ describe("packaged smoke workflow", () => {
     const visual = sectionBetween(workflow, "  playwright_visual:", "  docker_pr:");
 
     expect(workspaceUnitTests).toContain("runs-on: ubuntu-24.04");
-    expect(webWorkspaceTests).toContain("vars.OD_CI_RUNNER_MODE == 'performance'");
-    expect(webWorkspaceTests).toContain('["self-hosted","Linux","X64","od-persistent-ci","od-ci-hot-poc"]');
+    expect(webWorkspaceTests).toContain("vars.OD_CI_RUNNER_MODE == 'economic'");
+    expect(webWorkspaceTests).toContain('["blacksmith-4vcpu-ubuntu-2404"]');
+    expect(webWorkspaceTests).not.toContain('"od-persistent-ci"');
     expect(uiP0).toContain("vars.OD_CI_RUNNER_MODE == 'economic'");
     expect(uiP0).toContain('["blacksmith-8vcpu-ubuntu-2404"]');
     expect(uiP0).toContain("include: ${{ fromJSON(needs.scopes.outputs.ui_p0_matrix) }}");
