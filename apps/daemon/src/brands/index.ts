@@ -893,9 +893,10 @@ export async function reconcileProgrammaticExtractionTranscript(input: {
 
   const current = listMessages(input.db, conversationId).find((m) => m.id === assistantMessageId);
   if (!current) return;
-  // Never downgrade a recorded success; never re-clobber a settled non-success.
+  // Never downgrade a recorded success. A deliberate user Stop may still
+  // supersede an earlier stall/needs-attention row for the same extraction.
   if (current.runStatus === 'succeeded') return;
-  if (input.outcome !== 'succeeded' && current.runStatus && current.runStatus !== 'running') return;
+  if (input.outcome === 'needs_attention' && current.runStatus && current.runStatus !== 'running') return;
 
   const locale = input.locale ?? meta.locale ?? undefined;
   const copy = brandExtractionTranscriptCopy(locale);

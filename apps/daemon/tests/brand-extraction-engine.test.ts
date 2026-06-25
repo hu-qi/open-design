@@ -1021,6 +1021,61 @@ describe('agent-driven brand extraction engine', () => {
     expect(stopped?.content).toContain('stopped');
   });
 
+  it('lets user stop overwrite an earlier stalled programmatic transcript row', async () => {
+    const db = openDatabase(tempDir, { dataDir: tempDir });
+    const controller = new AbortController();
+    let releasePrefetch!: () => void;
+    const prefetchGate = new Promise<void>((resolve) => {
+      releasePrefetch = resolve;
+    });
+    let backgroundExtraction: Promise<unknown> | null = null;
+    const result = await startOfflineBrandExtraction({
+      url: 'acme.com',
+      brandsRoot,
+      projectsRoot,
+      userDesignSystemsRoot,
+      skillsRoot: SKILLS_ROOT,
+      db,
+      logoFallback: NO_LOGO_FALLBACK,
+      prefetch: async (url) => {
+        await prefetchGate;
+        return programmaticPrefetchResult(url);
+      },
+      programmaticAbortSignal: controller.signal,
+      onBackgroundExtraction: (settled) => {
+        backgroundExtraction = settled;
+      },
+      transcriptAgent: { agentId: 'claude', agentName: 'Claude' },
+    });
+
+    await reconcileProgrammaticExtractionTranscript({
+      db,
+      brandsRoot,
+      projectsRoot,
+      brandId: result.id,
+      outcome: 'needs_attention',
+    });
+    const stalled = listMessages(db, result.conversationId)[1];
+    expect(stalled?.runStatus).toBe('failed');
+    expect(stalled?.content).toContain('needs a hand');
+
+    controller.abort();
+    releasePrefetch();
+    if (!backgroundExtraction) throw new Error('expected background extraction promise');
+    await backgroundExtraction;
+    await reconcileProgrammaticExtractionTranscript({
+      db,
+      brandsRoot,
+      projectsRoot,
+      brandId: result.id,
+      outcome: 'stopped',
+    });
+
+    const stopped = listMessages(db, result.conversationId)[1];
+    expect(stopped?.runStatus).toBe('canceled');
+    expect(stopped?.content).toContain('stopped');
+  });
+
   it('backfills a programmatic transcript for empty legacy brand conversations', async () => {
     const db = openDatabase(tempDir, { dataDir: tempDir });
     const result = await startOfflineBrandExtraction({
