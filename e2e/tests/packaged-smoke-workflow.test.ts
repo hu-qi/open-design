@@ -326,7 +326,7 @@ describe("packaged smoke workflow", () => {
     expect(dockerPr).toContain("vars.OD_CI_RUNNER_MODE == 'performance'");
     expect(dockerPr).toContain('["ubuntu-24.04"]');
     expect(uiP0).toContain("vars.OD_CI_RUNNER_MODE == 'economic'");
-    expect(uiP0).toContain('["blacksmith-8vcpu-ubuntu-2404"]');
+    expect(uiP0).toContain('["blacksmith-4vcpu-ubuntu-2404"]');
     expect(uiP0).toContain("include: ${{ fromJSON(needs.scopes.outputs.ui_p0_matrix) }}");
     expect(uiP0CiMatrix.map((entry) => entry.name)).toEqual([
       "entry-settings",
@@ -342,7 +342,7 @@ describe("packaged smoke workflow", () => {
       "ui/workspace-keyboard-flows.test.ts",
     ]);
     expect(visual).toContain("vars.OD_CI_RUNNER_MODE == 'economic'");
-    expect(visual).toContain('["blacksmith-8vcpu-ubuntu-2404"]');
+    expect(visual).toContain('["blacksmith-4vcpu-ubuntu-2404"]');
   });
 
   it("[P2] routes CI follow-ons through generic handoff workflows", async () => {
