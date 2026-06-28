@@ -266,20 +266,25 @@ function normalizeExcalidrawSketchScene(value: unknown): ExcalidrawSketchScene |
   if (!isSketchRecord(value) || !Array.isArray(value.elements)) return null;
   return {
     elements: cloneJsonArray(value.elements),
-    appState: isSketchRecord(value.appState) ? cloneJsonRecord(value.appState) : null,
+    appState: isSketchRecord(value.appState) ? sanitizeExcalidrawAppState(value.appState) : null,
     files: isSketchRecord(value.files) ? cloneJsonRecord(value.files) : {},
   };
 }
 
-function sanitizeExcalidrawAppState(value: Record<string, unknown> | null): Record<string, unknown> {
+export function sanitizeExcalidrawAppState(value: Record<string, unknown> | null): Record<string, unknown> {
   const appState = value ? cloneJsonRecord(value) : {};
   delete appState.collaborators;
   delete appState.contextMenu;
+  delete appState.draggingElement;
+  delete appState.editingElement;
+  delete appState.editingTextElement;
+  delete appState.frameToHighlight;
+  delete appState.newElement;
   delete appState.openDialog;
   delete appState.openMenu;
   delete appState.openPopup;
+  delete appState.pendingImageElementId;
   delete appState.resizingElement;
-  delete appState.newElement;
   delete appState.selectionElement;
   delete appState.suggestedBindings;
   return appState;

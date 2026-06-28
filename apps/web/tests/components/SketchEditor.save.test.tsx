@@ -17,6 +17,18 @@ const mockData = vi.hoisted(() => ({
 
 vi.mock('@excalidraw/excalidraw', async () => {
   const React = await import('react');
+  const MainMenu = Object.assign(
+    (props: Record<string, any>) => React.createElement('div', null, props.children),
+    {
+      DefaultItems: {
+        SearchMenu: () => null,
+        Help: () => null,
+        ClearCanvas: () => null,
+        ChangeCanvasBackground: () => null,
+      },
+      Separator: () => null,
+    },
+  );
   return {
     Excalidraw: (props: Record<string, any>) => {
       mockData.lastProps = props;
@@ -37,7 +49,9 @@ vi.mock('@excalidraw/excalidraw', async () => {
         props.renderTopRightUI?.(false, {}),
       );
     },
+    MainMenu,
     convertToExcalidrawElements: vi.fn((elements: unknown[]) => elements),
+    exportToBlob: vi.fn(async () => new Blob(['mock image'], { type: 'image/png' })),
   };
 });
 

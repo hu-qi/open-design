@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import {
   Excalidraw,
+  MainMenu,
   convertToExcalidrawElements,
+  exportToBlob,
 } from '@excalidraw/excalidraw';
 import type {
   AppState,
@@ -18,12 +20,14 @@ import { Icon } from './Icon';
 import { readDefaultSketchToolColor } from './sketch-colors';
 import {
   emptySketchScene,
+  sanitizeExcalidrawAppState,
   sketchSceneHasContent,
   type ExcalidrawSketchScene,
   type SketchItem,
 } from './sketch-model';
 
 const SAVED_VISIBLE_MS = 2000;
+const EXPORTED_IMAGE_MIME_TYPE = 'image/png';
 
 interface SketchSceneChangeOptions {
   markDirty?: boolean;
@@ -37,6 +41,11 @@ interface Props {
   onSceneChange: (scene: ExcalidrawSketchScene, options?: SketchSceneChangeOptions) => void;
   onClear?: () => void;
   onSave: (scene?: ExcalidrawSketchScene) => Promise<boolean | void> | boolean | void;
+  onExportImage?: (
+    base64: string,
+    fileName: string,
+    scene: ExcalidrawSketchScene,
+  ) => Promise<boolean | void> | boolean | void;
   onCancel?: () => void;
   saving?: boolean;
   dirty?: boolean;
@@ -50,6 +59,7 @@ export function SketchEditor({
   onSceneChange,
   onClear,
   onSave,
+  onExportImage,
   onCancel,
   saving = false,
   dirty = false,
@@ -59,11 +69,13 @@ export function SketchEditor({
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const [resetNonce, setResetNonce] = useState(0);
   const [showSaved, setShowSaved] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [theme, setTheme] = useState(readExcalidrawTheme);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const onSceneChangeRef = useLatestRef(onSceneChange);
   const onClearRef = useLatestRef(onClear);
   const onSaveRef = useLatestRef(onSave);
+  const onExportImageRef = useLatestRef(onExportImage);
   const onCancelRef = useLatestRef(onCancel);
   const sceneRef = useLatestRef(scene);
   const fileNameRef = useLatestRef(fileName);
@@ -164,6 +176,38 @@ export function SketchEditor({
     onCancelRef.current?.();
   }, [onCancelRef]);
 
+  const handleExportImage = useCallback(async () => {
+    const exportHandler = onExportImageRef.current;
+    if (!exportHandler || exporting) return;
+    const exportedScene = currentScene();
+    const exportedElements = exportedScene.elements.filter(isNonDeletedExcalidrawElement) as Parameters<typeof exportToBlob>[0]['elements'];
+    const exportedAppState = {
+      ...sanitizeExcalidrawAppState(exportedScene.appState),
+      exportBackground: true,
+      viewBackgroundColor: typeof exportedScene.appState?.viewBackgroundColor === 'string'
+        ? exportedScene.appState.viewBackgroundColor
+        : '#ffffff',
+    } as Parameters<typeof exportToBlob>[0]['appState'];
+    setExporting(true);
+    try {
+      const blob = await exportToBlob({
+        elements: exportedElements,
+        appState: exportedAppState,
+        files: exportedScene.files as Parameters<typeof exportToBlob>[0]['files'],
+        mimeType: EXPORTED_IMAGE_MIME_TYPE,
+        exportPadding: 16,
+      });
+      const base64 = await blobToBase64(blob);
+      const ok = await exportHandler(base64, exportedImageFileName(fileNameRef.current), exportedScene);
+      if (ok === false) return;
+    } catch (err) {
+      console.warn('[SketchEditor] export image failed', err);
+      alert(t('common.exportImageFailed'));
+    } finally {
+      setExporting(false);
+    }
+  }, [currentScene, exporting, fileNameRef, onExportImageRef, t]);
+
   const handleExcalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
     apiRef.current = api;
   }, []);
@@ -173,7 +217,8 @@ export function SketchEditor({
       saveToActiveFile: false,
       loadScene: false,
       toggleTheme: false,
-      export: { saveFileToDisk: false },
+      saveAsImage: false,
+      export: false,
     },
     tools: {
       image: true,
@@ -193,6 +238,17 @@ export function SketchEditor({
         {fileName}
         {dirty ? ' *' : ''}
       </span>
+      {onExportImage ? (
+        <Button
+          variant="ghost"
+          onClick={() => void handleExportImage()}
+          disabled={exporting || !sketchSceneHasContent(scene)}
+          aria-label={t('common.exportImage')}
+        >
+          <Icon name="download" size={14} />
+          {exporting ? t('fileViewer.exportImageSaving') : t('common.exportImage')}
+        </Button>
+      ) : null}
       <Button variant="ghost" onClick={handleClear} disabled={!canClear}>
         {t('sketch.clear')}
       </Button>
@@ -210,7 +266,23 @@ export function SketchEditor({
         {saving ? t('sketch.saving') : showSaved ? <Icon name="check" size={14} /> : t('common.save')}
       </Button>
     </div>
-  ), [canCancel, canClear, canSave, dirty, fileName, handleCancel, handleClear, handleSave, saving, showSaved, t]);
+  ), [
+    canCancel,
+    canClear,
+    canSave,
+    dirty,
+    exporting,
+    fileName,
+    handleCancel,
+    handleClear,
+    handleExportImage,
+    handleSave,
+    onExportImage,
+    saving,
+    scene,
+    showSaved,
+    t,
+  ]);
 
   return (
     <div className="sketch-editor">
@@ -228,7 +300,15 @@ export function SketchEditor({
           autoFocus
           name={fileName}
           UIOptions={excalidrawUIOptions}
-        />
+        >
+          <MainMenu>
+            <MainMenu.DefaultItems.SearchMenu />
+            <MainMenu.DefaultItems.Help />
+            <MainMenu.DefaultItems.ClearCanvas />
+            <MainMenu.Separator />
+            <MainMenu.DefaultItems.ChangeCanvasBackground />
+          </MainMenu>
+        </Excalidraw>
       </div>
     </div>
   );
@@ -246,7 +326,7 @@ function buildInitialData(
   return {
     elements: initialElements as ExcalidrawInitialDataState['elements'],
     appState: {
-      ...(scene.appState ?? {}),
+      ...sanitizeExcalidrawAppState(scene.appState),
       name: fileName,
       currentItemStrokeColor: readDefaultSketchToolColor(),
       viewBackgroundColor: typeof scene.appState?.viewBackgroundColor === 'string'
@@ -265,9 +345,37 @@ function sceneFromExcalidraw(
 ): ExcalidrawSketchScene {
   return {
     elements: cloneJson<unknown[]>(elements, []),
-    appState: cloneJson<Record<string, unknown> | null>(appState as unknown, null),
+    appState: sanitizeExcalidrawAppState(cloneJson<Record<string, unknown> | null>(appState as unknown, null)),
     files: cloneJson<Record<string, unknown>>(files, {}),
   };
+}
+
+function isNonDeletedExcalidrawElement(element: unknown): boolean {
+  return Boolean(
+    element &&
+    typeof element === 'object' &&
+    (element as { isDeleted?: unknown }).isDeleted !== true,
+  );
+}
+
+function exportedImageFileName(fileName: string): string {
+  const slash = fileName.lastIndexOf('/');
+  const baseName = slash >= 0 ? fileName.slice(slash + 1) : fileName;
+  const stem = baseName.replace(/\.sketch\.json$/i, '') || 'sketch';
+  return `${stem}.png`;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read exported image'));
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
 }
 
 function sceneContentSignature(

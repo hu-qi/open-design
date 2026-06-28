@@ -7,6 +7,7 @@ interface ExcalidrawApi {
 }
 
 interface ExcalidrawMockProps {
+  children?: ReactNode;
   excalidrawAPI?: (api: ExcalidrawApi) => void;
   initialData?: {
     elements?: unknown[];
@@ -19,6 +20,7 @@ interface ExcalidrawMockProps {
 }
 
 export function Excalidraw({
+  children,
   excalidrawAPI,
   initialData,
   langCode,
@@ -37,9 +39,25 @@ export function Excalidraw({
     <div data-testid="excalidraw" data-lang={langCode ?? ''} data-theme={theme ?? ''}>
       <canvas />
       {renderTopRightUI?.(false, {})}
+      {children}
     </div>
   );
 }
+
+export const MainMenu = Object.assign(
+  ({ children }: { children?: ReactNode }) => (
+    <div data-testid="excalidraw-main-menu">{children}</div>
+  ),
+  {
+    DefaultItems: {
+      SearchMenu: () => null,
+      Help: () => null,
+      ClearCanvas: () => null,
+      ChangeCanvasBackground: () => null,
+    },
+    Separator: () => null,
+  },
+);
 
 export function convertToExcalidrawElements(elements: unknown[]) {
   return elements.map((element, index) => ({
@@ -65,4 +83,8 @@ export async function exportToSvg() {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('data-preview', 'excalidraw');
   return svg;
+}
+
+export async function exportToBlob() {
+  return new Blob(['mock image'], { type: 'image/png' });
 }
