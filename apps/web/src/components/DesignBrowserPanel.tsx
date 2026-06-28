@@ -28,7 +28,11 @@ import {
 } from '../providers/registry';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
-import { registerBrandBrowser, type BrandBrowserHandle } from '../runtime/brand-browser-bridge';
+import {
+  registerBrandBrowser,
+  type BrandBrowserHandle,
+  type BrandBrowserPageSnapshotResult,
+} from '../runtime/brand-browser-bridge';
 import { captureHostRegionSnapshot } from '../runtime/exports';
 import { buildBoardCommentAttachments, commentsToAttachments } from '../comments';
 import type {
@@ -39,8 +43,15 @@ import type {
 } from '../types';
 import {
   BROWSER_CANCEL_PICKER_SCRIPT,
+  BROWSER_CAPTURE_PAGE_ARCHIVE_SCRIPT,
+  BROWSER_PAGE_ARCHIVE_INDEX_FILE,
+  BROWSER_PAGE_ARCHIVE_SCHEMA,
   BROWSER_SERIALIZE_HTML_SCRIPT,
   BROWSER_VIEWPORT_PRESETS,
+  type BrowserPageArchiveCapture,
+  type BrowserPageArchiveCaptureResource,
+  type BrowserPageArchiveManifest,
+  type BrowserPageArchiveManifestResource,
   type BrowserElementSnapshot,
   browserApplyStyleScript,
   browserApplyTextScript,
@@ -751,7 +762,7 @@ export function DesignBrowserPanel({
   const [textDraft, setTextDraft] = useState('');
   const [captureChromeHidden, setCaptureChromeHidden] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [savingAction, setSavingAction] = useState<'brief' | 'screenshot' | null>(null);
+  const [savingAction, setSavingAction] = useState<'archive' | 'brief' | 'screenshot' | null>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const chromeRef = useRef<HTMLDivElement | null>(null);
   const pickerRequestIdRef = useRef(0);
@@ -773,6 +784,7 @@ export function DesignBrowserPanel({
       getURL: () => webviewNode?.getURL?.() ?? currentUrl,
       executeJavaScript: (code, gesture) =>
         webviewNode ? webviewNode.executeJavaScript(code, gesture) : null,
+      downloadPageSnapshot: () => savePageSnapshot({ openAfterSave: false }),
     };
     registerBrandBrowser(projectId, browserTabId, handle);
     return () => registerBrandBrowser(projectId, browserTabId, null);
@@ -1272,17 +1284,17 @@ export function DesignBrowserPanel({
   async function copyCurrentUrl() {
     const text = isBlank ? '' : currentUrl;
     if (!text) {
-      setStatusMessage('No URL to copy');
+      setStatusMessage(t('designBrowser.status.noUrlToCopy'));
       return;
     }
     await copyText(text);
-    setStatusMessage('URL copied');
+    setStatusMessage(t('designBrowser.status.urlCopied'));
     setMenuOpen(false);
   }
 
   async function openCurrentExternally() {
     if (isBlank || !isHttpLikeUrl(currentUrl)) {
-      setStatusMessage('Open an http URL first');
+      setStatusMessage(t('designBrowser.status.openHttpFirst'));
       return;
     }
     await openExternalUrl(currentUrl);
@@ -1291,7 +1303,7 @@ export function DesignBrowserPanel({
 
   async function takeScreenshot() {
     if (!webviewNode || isBlank) {
-      setStatusMessage('Open a page before taking a screenshot');
+      setStatusMessage(t('designBrowser.status.openBeforeScreenshot'));
       return;
     }
     setSavingAction('screenshot');
@@ -1321,9 +1333,13 @@ export function DesignBrowserPanel({
       // Stay on the browser so the confirmation toast is visible and the page
       // remains in view; the capture is reachable from Design Files. Show
       // whether it reached the clipboard so the user knows it is paste-ready.
-      setStatusMessage(copied ? 'Screenshot copied to clipboard' : 'Screenshot saved to project');
+      setStatusMessage(
+        copied
+          ? t('fileViewer.screenshotCopied')
+          : t('designBrowser.status.screenshotSaved'),
+      );
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Screenshot failed');
+      setStatusMessage(error instanceof Error ? error.message : t('designBrowser.status.screenshotFailed'));
     } finally {
       setCaptureChromeHidden(false);
       setSavingAction(null);
@@ -1386,7 +1402,7 @@ export function DesignBrowserPanel({
 
   async function savePageBrief() {
     if (!webviewNode || isBlank) {
-      setStatusMessage('Open a page before saving a brief');
+      setStatusMessage(t('designBrowser.status.openBeforeBrief'));
       return;
     }
     setSavingAction('brief');
@@ -1401,7 +1417,83 @@ export function DesignBrowserPanel({
       await onRefreshFiles();
       onOpenFile(file.name);
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Brief save failed');
+      setStatusMessage(error instanceof Error ? error.message : t('designBrowser.status.briefSaveFailed'));
+    } finally {
+      setSavingAction(null);
+      setMenuOpen(false);
+    }
+  }
+
+  async function savePageSnapshot(
+    options: { openAfterSave?: boolean } = {},
+  ): Promise<BrandBrowserPageSnapshotResult> {
+    if (!webviewNode || isBlank) {
+      const message = t('designBrowser.status.openBeforeDownload');
+      setStatusMessage(message);
+      return { ok: false, message };
+    }
+    setSavingAction('archive');
+    setStatusMessage(t('designBrowser.status.pageSnapshotStarted'));
+    try {
+      const capture = await webviewNode.executeJavaScript<BrowserPageArchiveCapture>(
+        BROWSER_CAPTURE_PAGE_ARCHIVE_SCRIPT,
+        true,
+      );
+      if (!isBrowserPageArchiveCapture(capture)) {
+        throw new Error(t('designBrowser.status.pageSnapshotUnsupported'));
+      }
+      const dir = browserPageArchiveDir(currentUrl);
+      const htmlFile = `${dir}/page.html`;
+      const cssFile = `${dir}/styles.css`;
+      const manifestFile = `${dir}/manifest.json`;
+      const htmlSaved = await writeProjectTextFile(projectId, htmlFile, capture.html);
+      if (!htmlSaved) throw new Error(t('designBrowser.status.pageSnapshotFailed'));
+      const cssSaved = await writeProjectTextFile(projectId, cssFile, capture.css ?? '');
+      if (!cssSaved) throw new Error(t('designBrowser.status.pageSnapshotFailed'));
+
+      const resources = await saveBrowserPageArchiveResources({
+        dir,
+        projectId,
+        resources: capture.resources,
+      });
+      const savedResources = resources.filter((resource) => resource.status === 'saved').length;
+      const manifest: BrowserPageArchiveManifest = {
+        schema: BROWSER_PAGE_ARCHIVE_SCHEMA,
+        capturedAt: Date.now(),
+        title: capture.title || pageTitle,
+        url: capture.url || currentUrl,
+        baseUrl: capture.url || currentUrl,
+        htmlFile,
+        cssFile,
+        manifestFile,
+        resources,
+      };
+      const manifestText = JSON.stringify(manifest, null, 2);
+      const savedManifest = await writeProjectTextFile(projectId, manifestFile, manifestText);
+      const savedIndex = await writeProjectTextFile(projectId, BROWSER_PAGE_ARCHIVE_INDEX_FILE, manifestText);
+      if (!savedManifest || !savedIndex) throw new Error(t('designBrowser.status.pageSnapshotFailed'));
+      await onRefreshFiles();
+      if (options.openAfterSave !== false) onOpenFile(manifestFile);
+      const message = t('designBrowser.status.pageSnapshotSaved', {
+        saved: savedResources,
+        total: resources.length,
+      });
+      setStatusMessage(message);
+      return {
+        ok: true,
+        baseUrl: manifest.baseUrl,
+        cssFile,
+        htmlFile,
+        indexFile: BROWSER_PAGE_ARCHIVE_INDEX_FILE,
+        manifestFile,
+        message,
+        savedResources,
+        totalResources: resources.length,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('designBrowser.status.pageSnapshotFailed');
+      setStatusMessage(message);
+      return { ok: false, message };
     } finally {
       setSavingAction(null);
       setMenuOpen(false);
@@ -1410,11 +1502,17 @@ export function DesignBrowserPanel({
 
   async function clearCookies(storage: boolean) {
     if (!desktopHostAvailable) {
-      setStatusMessage('Desktop browser data is unavailable here');
+      setStatusMessage(t('designBrowser.status.desktopDataUnavailable'));
       return;
     }
     const result = await clearHostBrowserData({ cookies: true, storage });
-    setStatusMessage(result.ok ? 'Browser data cleared' : 'reason' in result ? result.reason : 'Browser data clear failed');
+    setStatusMessage(
+      result.ok
+        ? t('designBrowser.status.browserDataCleared')
+        : 'reason' in result
+          ? result.reason
+          : t('designBrowser.status.browserDataClearFailed'),
+    );
     if (storage) {
       setHistory([]);
       setLoadUrl(EMPTY_URL);
@@ -1431,7 +1529,7 @@ export function DesignBrowserPanel({
   function clearHistoryOnly() {
     setHistory([]);
     saveHistory(projectId, []);
-    setStatusMessage('History cleared');
+    setStatusMessage(t('designBrowser.status.historyCleared'));
     setMenuOpen(false);
   }
 
@@ -1927,7 +2025,7 @@ export function DesignBrowserPanel({
             <BrowserUseMenu onPick={requestBrowserUsePrompt} />
           ) : null}
           <IconTooltipButton
-            label="Save page brief"
+            label={t('designBrowser.savePageBrief')}
             wrapperClassName="db-action-item db-action-secondary db-action-save"
             disabled={isBlank || savingAction != null}
             onClick={savePageBrief}
@@ -1935,7 +2033,7 @@ export function DesignBrowserPanel({
             <Icon name="file-code" size={15} />
           </IconTooltipButton>
           <IconTooltipButton
-            label="Browser menu"
+            label={t('designBrowser.menu')}
             wrapperClassName="db-action-item db-action-menu"
             onClick={() => {
               setMenuOpen((open) => !open);
@@ -1949,36 +2047,40 @@ export function DesignBrowserPanel({
             <div className="db-menu" role="menu">
               <button type="button" role="menuitem" onClick={takeScreenshot} disabled={isBlank || savingAction != null}>
                 <Icon name="image" size={14} />
-                Copy Screenshot
+                {t('designBrowser.copyScreenshot')}
               </button>
               <button type="button" role="menuitem" onClick={() => reload(true)} disabled={isBlank}>
                 <Icon name="reload" size={14} />
-                Hard Reload
+                {t('designBrowser.hardReload')}
               </button>
               <button type="button" role="menuitem" onClick={copyCurrentUrl} disabled={isBlank}>
                 <Icon name="copy" size={14} />
-                Copy URL
+                {t('designBrowser.copyUrl')}
               </button>
               <button type="button" role="menuitem" onClick={openCurrentExternally} disabled={isBlank || !isHttpLikeUrl(currentUrl)}>
                 <Icon name="external-link" size={14} />
-                Open in Browser
+                {t('designBrowser.openExternal')}
               </button>
               <span className="db-menu-separator" />
+              <button type="button" role="menuitem" onClick={() => void savePageSnapshot()} disabled={isBlank || savingAction != null}>
+                <Icon name="download" size={14} />
+                {t('designBrowser.downloadPage')}
+              </button>
               <button type="button" role="menuitem" onClick={savePageBrief} disabled={isBlank || savingAction != null}>
                 <Icon name="file" size={14} />
-                Save Page Brief
+                {t('designBrowser.savePageBrief')}
               </button>
               <button type="button" role="menuitem" onClick={clearHistoryOnly}>
                 <Icon name="history" size={14} />
-                Clear Browsing History
+                {t('designBrowser.clearHistory')}
               </button>
               <button type="button" role="menuitem" onClick={() => void clearCookies(false)}>
                 <Icon name="trash" size={14} />
-                Clear Cookies
+                {t('designBrowser.clearCookies')}
               </button>
               <button type="button" role="menuitem" onClick={() => void clearCookies(true)}>
                 <Icon name="trash" size={14} />
-                Clear All Data
+                {t('designBrowser.clearAllData')}
               </button>
             </div>
           ) : null}
@@ -3092,6 +3194,199 @@ export function browserFileName(prefix: string, url: string, extension: 'md' | '
   const host = labelFromUrl(url).replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'page';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return `browser/${prefix}-${host}-${stamp}.${extension}`;
+}
+
+const BROWSER_ARCHIVE_RESOURCE_LIMIT = 220;
+const BROWSER_ARCHIVE_RESOURCE_MAX_BYTES = 15 * 1024 * 1024;
+const BROWSER_ARCHIVE_TOTAL_MAX_BYTES = 80 * 1024 * 1024;
+
+function browserPageArchiveDir(url: string, date = new Date()): string {
+  const host = labelFromUrl(url).replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'page';
+  const stamp = date.toISOString().replace(/[:.]/g, '-');
+  return `browser/snapshots/${host}-${stamp}`;
+}
+
+function isBrowserPageArchiveCapture(value: unknown): value is BrowserPageArchiveCapture {
+  if (!value || typeof value !== 'object') return false;
+  const capture = value as Partial<BrowserPageArchiveCapture>;
+  return (
+    typeof capture.url === 'string' &&
+    typeof capture.html === 'string' &&
+    typeof capture.css === 'string' &&
+    Array.isArray(capture.resources)
+  );
+}
+
+async function saveBrowserPageArchiveResources(input: {
+  dir: string;
+  projectId: string;
+  resources: BrowserPageArchiveCaptureResource[];
+}): Promise<BrowserPageArchiveManifestResource[]> {
+  const unique = new Map<string, BrowserPageArchiveCaptureResource>();
+  for (const resource of input.resources) {
+    if (!resource || typeof resource.url !== 'string') continue;
+    const url = resource.url.trim();
+    if (!url || unique.has(url)) continue;
+    unique.set(url, resource);
+    if (unique.size >= BROWSER_ARCHIVE_RESOURCE_LIMIT) break;
+  }
+
+  const out: BrowserPageArchiveManifestResource[] = [];
+  let totalBytes = 0;
+  let index = 0;
+  for (const resource of unique.values()) {
+    index += 1;
+    const base = browserArchiveManifestResourceBase(resource);
+    if (totalBytes >= BROWSER_ARCHIVE_TOTAL_MAX_BYTES) {
+      out.push({ ...base, status: 'skipped', error: 'archive byte budget reached' });
+      continue;
+    }
+    try {
+      const fetched = await fetchBrowserArchiveResource(resource.url);
+      if (fetched.size > BROWSER_ARCHIVE_RESOURCE_MAX_BYTES) {
+        out.push({ ...base, status: 'skipped', error: 'resource too large', mime: fetched.mime, size: fetched.size });
+        continue;
+      }
+      if (totalBytes + fetched.size > BROWSER_ARCHIVE_TOTAL_MAX_BYTES) {
+        out.push({ ...base, status: 'skipped', error: 'archive byte budget reached', mime: fetched.mime, size: fetched.size });
+        continue;
+      }
+      const file = `${input.dir}/assets/${browserArchiveResourceFileName(resource, fetched.mime, index)}`;
+      const saved = await writeProjectBase64File(input.projectId, file, fetched.base64);
+      if (!saved) throw new Error('file save failed');
+      totalBytes += fetched.size;
+      out.push({ ...base, status: 'saved', file, mime: fetched.mime, size: fetched.size });
+    } catch (error) {
+      out.push({
+        ...base,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'resource download failed',
+      });
+    }
+  }
+  return out;
+}
+
+function browserArchiveManifestResourceBase(
+  resource: BrowserPageArchiveCaptureResource,
+): Omit<BrowserPageArchiveManifestResource, 'status'> {
+  return {
+    url: resource.url,
+    kind: resource.kind,
+    ...(resource.tag ? { tag: resource.tag } : {}),
+    ...(resource.rel ? { rel: resource.rel } : {}),
+    ...(resource.source ? { source: resource.source } : {}),
+  };
+}
+
+async function fetchBrowserArchiveResource(
+  url: string,
+): Promise<{ base64: string; mime: string; size: number }> {
+  const resp = await fetch(url, { cache: 'force-cache', credentials: 'include' });
+  if (!resp.ok) throw new Error(`resource fetch failed (${resp.status})`);
+  const blob = await resp.blob();
+  const mime = blob.type || responseMimeFromUrl(url);
+  const base64 = await blobToBase64(blob);
+  return { base64, mime, size: blob.size };
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.split(',', 2)[1] ?? '');
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('blob read failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function browserArchiveResourceFileName(
+  resource: BrowserPageArchiveCaptureResource,
+  mime: string,
+  index: number,
+): string {
+  const ext = extensionFromUrl(resource.url) || extensionFromMime(mime) || extensionFromKind(resource.kind);
+  let base = 'resource';
+  try {
+    const parsed = new URL(resource.url);
+    const name = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || '');
+    base = name.replace(/\.[a-z0-9]{1,8}$/i, '') || parsed.hostname || base;
+  } catch {
+    base = resource.kind || base;
+  }
+  const safeBase = base.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 56) || 'resource';
+  return `${String(index).padStart(3, '0')}-${safeBase}${ext}`;
+}
+
+function extensionFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const ext = /\.[a-z0-9]{1,8}$/i.exec(parsed.pathname)?.[0]?.toLowerCase() ?? '';
+    return ext && !/^\.(?:php|aspx?|jsp)$/i.test(ext) ? ext : '';
+  } catch {
+    return '';
+  }
+}
+
+function extensionFromMime(mime: string): string {
+  const clean = mime.split(';', 1)[0]?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    'application/javascript': '.js',
+    'application/json': '.json',
+    'application/octet-stream': '',
+    'application/pdf': '.pdf',
+    'font/otf': '.otf',
+    'font/ttf': '.ttf',
+    'font/woff': '.woff',
+    'font/woff2': '.woff2',
+    'image/avif': '.avif',
+    'image/gif': '.gif',
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/svg+xml': '.svg',
+    'image/webp': '.webp',
+    'text/css': '.css',
+    'text/html': '.html',
+    'text/javascript': '.js',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+  };
+  return map[clean] ?? '';
+}
+
+function extensionFromKind(kind: BrowserPageArchiveCaptureResource['kind']): string {
+  if (kind === 'stylesheet') return '.css';
+  if (kind === 'script') return '.js';
+  if (kind === 'font') return '.woff2';
+  if (kind === 'media') return '.bin';
+  if (kind === 'document') return '.html';
+  return '.bin';
+}
+
+function responseMimeFromUrl(url: string): string {
+  const ext = extensionFromUrl(url);
+  const map: Record<string, string> = {
+    '.avif': 'image/avif',
+    '.css': 'text/css',
+    '.gif': 'image/gif',
+    '.html': 'text/html',
+    '.ico': 'image/x-icon',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.js': 'application/javascript',
+    '.mp4': 'video/mp4',
+    '.otf': 'font/otf',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.ttf': 'font/ttf',
+    '.webm': 'video/webm',
+    '.webp': 'image/webp',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+  };
+  return map[ext] ?? 'application/octet-stream';
 }
 
 export function pageBriefMarkdown(brief: PageBrief, fallbackUrl: string): string {

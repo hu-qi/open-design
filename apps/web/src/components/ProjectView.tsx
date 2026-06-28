@@ -45,6 +45,7 @@ import {
   fetchProjectDesignSystemPackageAudit,
   fetchLiveArtifacts,
   fetchProjectFiles,
+  fetchProjectFileText,
   fetchSkill,
   patchPreviewCommentStatus,
   projectRawUrl,
@@ -115,10 +116,16 @@ import {
   finalizeBrandProject,
 } from '../runtime/brands';
 import { isOpenDesignHostAvailable } from '@open-design/host';
-import { getBrandBrowser, BRAND_BROWSER_TAB_ID } from '../runtime/brand-browser-bridge';
 import {
+  getBrandBrowser,
+  BRAND_BROWSER_TAB_ID,
+  type BrandBrowserPageSnapshotResult,
+} from '../runtime/brand-browser-bridge';
+import {
+  BROWSER_PAGE_ARCHIVE_INDEX_FILE,
   BROWSER_SERIALIZE_HTML_SCRIPT,
   BROWSER_SERIALIZE_STYLES_SCRIPT,
+  isBrowserPageArchiveManifest,
 } from './design-browser-tools';
 import type { BrandBrowserAssistConfirm, BrandBrowserAssistResult } from './OdCard';
 import {
@@ -400,6 +407,10 @@ interface Props {
   onChangeDefaultDesignSystem?: (designSystemId: string | null) => void;
   onDesignSystemsRefresh?: () => Promise<void> | void;
   onCreateProjectFromDesignSystem?: (designSystemId: string, title: string) => Promise<void> | void;
+  onCreateDesignSystemFromProject?: (
+    sourceProjectId: string,
+    input: { name?: string; pendingPrompt?: string },
+  ) => Promise<void> | void;
 }
 
 interface QueuedChatSend {
@@ -531,6 +542,77 @@ function buildBrandAgentExtractionContinuationPrompt(input: {
     '- Files visible in the project right now:',
     ...visibleFiles,
   ].join('\n');
+}
+
+function designSystemNameForSourceProject(project: Project): string {
+  const sourceName = project.name.trim() || 'Untitled';
+  return /\bdesign system\b/i.test(sourceName)
+    ? sourceName
+    : `${sourceName} Design System`;
+}
+
+function buildCreateDesignSystemFromProjectPrompt(input: {
+  project: Project;
+  projectFiles: readonly ProjectFile[];
+  activeDesignSystem?: DesignSystemSummary | null;
+}): string {
+  const visibleFiles = input.projectFiles
+    .filter((file) => file.name.trim())
+    .slice(0, 140)
+    .map((file) => `  - ${file.name}${file.size > 0 ? ` (${Math.round(file.size / 1024)}KB)` : ''}`);
+  const metadataJson = input.project.metadata
+    ? JSON.stringify(input.project.metadata, null, 2)
+    : '{}';
+  const activeDesignSystem = input.activeDesignSystem
+    ? [
+        `- Active design system id: ${input.activeDesignSystem.id}`,
+        `- Active design system title: ${input.activeDesignSystem.title}`,
+      ]
+    : ['- Active design system: (none)'];
+  return [
+    'Create this project as a complete Open Design design system workspace.',
+    '',
+    'Autonomy requirement:',
+    '- Do not ask setup or clarification questions during design-system generation.',
+    '- Do not emit `<question-form>`, "Quick brief — 30 seconds", direction cards, choice cards, or any UI that waits for user input.',
+    '- The source project already contains the evidence. Choose sensible defaults where details are missing and begin generating the design-system artifacts immediately.',
+    '',
+    'Source project handoff:',
+    `- Source project id: ${input.project.id}`,
+    `- Source project name: ${input.project.name}`,
+    ...activeDesignSystem,
+    '- Read `context/source-context.md` first. It lists the copied project files and original project metadata.',
+    '- Treat every copied file, uploaded asset, reference image, browser snapshot, sketch, generated artifact, and context note in this workspace as design-system evidence.',
+    '- Use the copied project outputs to infer real visual language, components, layout, interaction patterns, copy tone, tokens, typography, spacing, assets, and anti-patterns.',
+    '- Do not create another project or another design-system id. Update this new design-system project in place.',
+    '',
+    'Source project metadata:',
+    '```json',
+    metadataJson,
+    '```',
+    '',
+    'Visible copied files to inspect:',
+    ...(visibleFiles.length > 0 ? visibleFiles : ['  - (none listed yet; rely on context/source-context.md after the copy finishes)']),
+    input.projectFiles.length > visibleFiles.length
+      ? `  - ...and ${input.projectFiles.length - visibleFiles.length} more files listed in context/source-context.md`
+      : '',
+    '',
+    'Expected output:',
+    '- A clear `DESIGN.md` with product context, visual foundations, color, type, spacing, layout, components, motion, voice, and anti-patterns.',
+    '- A reusable package: `README.md`, `SKILL.md`, `colors_and_type.css`, provenance notes, `assets/`, `build/` when runtime icons exist, optional `fonts/`, focused `preview/` cards, preserved source examples, and `ui_kits/app/`.',
+    '- Preserve real source assets when evidence provides them: logos, app icons, tray icons, avatars, wordmarks, imagery, and font files belong in `assets/`, `build/`, or `fonts/`, not only in prose.',
+    '- Preserve high-signal source/component examples outside `context/` when copied files include substantial implementation or artifact code. Do not replace them with tiny stubs.',
+    '- Split review previews into focused cards for colors, typography, spacing, radius/shadows, components, brand assets, and applied UI surfaces. Preview cards must visibly load preserved files when available.',
+    '- Build `ui_kits/app/` as an applied interface kit that reflects the source project, with an index page and component files when the evidence supports them. Do not leave it as a generic static mock.',
+    '- Keep `README.md`, `SKILL.md`, `DESIGN.md`, preview manifest text, and `ui_kits/app/README.md` synchronized with the final file structure.',
+    '',
+    'Completion gate:',
+    '- Finish only after the project contains reviewable design-system artifacts and the right-side Design System tab can inspect them.',
+    '- Before your final response, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings`.',
+    '- Fix every audit error and design-quality warning. If an issue cannot be fixed because source evidence is missing, explain that blocker instead of claiming the design system is ready.',
+    '',
+    'When finished, summarize the generated files and name the first previews reviewers should inspect.',
+  ].filter(Boolean).join('\n');
 }
 
 function chatAttachmentsFromPreviewCommentImages(
@@ -1056,6 +1138,7 @@ export function ProjectView({
   onChangeDefaultDesignSystem,
   onDesignSystemsRefresh,
   onCreateProjectFromDesignSystem,
+  onCreateDesignSystemFromProject,
 }: Props) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -2690,6 +2773,44 @@ export function ProjectView({
     [activeConversationId, project.id],
   );
 
+  const readLocalBrowserPageArchiveSnapshot = useCallback(
+    async (sourceUrl: string | null | undefined): Promise<BrandBrowserSnapshot> => {
+      const manifestText = await fetchProjectFileText(project.id, BROWSER_PAGE_ARCHIVE_INDEX_FILE, {
+        cache: 'no-store',
+        cacheBustKey: Date.now(),
+      });
+      if (!manifestText) {
+        return { status: 'unavailable', message: t('chat.brandBrowserLocalSnapshotMissing') };
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(manifestText);
+      } catch {
+        return { status: 'read-failed', message: t('chat.brandBrowserLocalSnapshotReadFailed') };
+      }
+      if (!isBrowserPageArchiveManifest(parsed)) {
+        return { status: 'read-failed', message: t('chat.brandBrowserLocalSnapshotReadFailed') };
+      }
+      if (!brandBrowserSnapshotMatchesSource(parsed.baseUrl || parsed.url, sourceUrl)) {
+        return { status: 'unavailable', message: t('chat.brandBrowserLocalSnapshotMissing') };
+      }
+      const [html, css] = await Promise.all([
+        fetchProjectFileText(project.id, parsed.htmlFile, { cache: 'no-store', cacheBustKey: parsed.capturedAt }),
+        fetchProjectFileText(project.id, parsed.cssFile, { cache: 'no-store', cacheBustKey: parsed.capturedAt }),
+      ]);
+      if (!html?.trim()) {
+        return { status: 'read-failed', message: t('chat.brandBrowserLocalSnapshotReadFailed') };
+      }
+      return {
+        status: 'ready',
+        html,
+        css: css ?? '',
+        baseUrl: parsed.baseUrl || parsed.url,
+      };
+    },
+    [project.id, t],
+  );
+
   const readBrandBrowserSnapshot = useCallback(
     async (tabId = BRAND_BROWSER_TAB_ID, timeoutMs = 8000): Promise<BrandBrowserSnapshot> => {
       const handle = getBrandBrowser(project.id, tabId);
@@ -2743,6 +2864,36 @@ export function ProjectView({
       return { status: 'ready', html, css, baseUrl };
     },
     [project.id, t],
+  );
+
+  const downloadBrandBrowserPageArchive = useCallback(
+    async (
+      sourceUrl: string | null | undefined,
+      tabId = BRAND_BROWSER_TAB_ID,
+      timeoutMs = 12_000,
+    ): Promise<BrandBrowserSnapshot> => {
+      const handle = getBrandBrowser(project.id, tabId);
+      if (!handle || !handle.isDesktopWebview || !handle.downloadPageSnapshot) {
+        return { status: 'unavailable', message: t('chat.brandBrowserAssistDesktopOnly') };
+      }
+      const result: BrandBrowserPageSnapshotResult = await Promise.race<BrandBrowserPageSnapshotResult>([
+        handle.downloadPageSnapshot(),
+        new Promise<BrandBrowserPageSnapshotResult>((_, reject) =>
+          window.setTimeout(
+            () => reject(new Error(t('chat.brandBrowserSnapshotSaveFailed'))),
+            timeoutMs,
+          ),
+        ),
+      ]).catch((err): BrandBrowserPageSnapshotResult => ({
+        ok: false,
+        message: err instanceof Error ? err.message : t('chat.brandBrowserSnapshotSaveFailed'),
+      }));
+      if (!result.ok) {
+        return { status: 'read-failed', message: result.message || t('chat.brandBrowserSnapshotSaveFailed') };
+      }
+      return readLocalBrowserPageArchiveSnapshot(sourceUrl || result.baseUrl || '');
+    },
+    [project.id, readLocalBrowserPageArchiveSnapshot, t],
   );
 
   const readBrandBrowserSnapshotWithRetry = useCallback(
@@ -6588,6 +6739,7 @@ export function ProjectView({
   const [brandProgrammaticContinueStarting, setBrandProgrammaticContinueStarting] = useState(false);
   const brandProgrammaticContinueStartingRef = useRef(false);
   const [brandCreateDesignStarting, setBrandCreateDesignStarting] = useState(false);
+  const [projectDesignSystemCreateStarting, setProjectDesignSystemCreateStarting] = useState(false);
   useEffect(() => {
     if (brandEnrichmentPromptSeed) {
       setBrandEnrichmentPromptSeedCache(brandEnrichmentPromptSeed);
@@ -6642,13 +6794,84 @@ export function ProjectView({
     };
 
     void (async () => {
-      // Foreground the pinned Browser tab FIRST. When the user clicks Continue
-      // from the preview tab, the browser <webview> is `display:none` and
-      // Electron background-throttles its renderer — `executeJavaScript` then
-      // hangs until the read timeout ("spins forever, then read failed"). A
-      // focus-only request wakes the webview WITHOUT navigating (so it never
-      // reloads the page or re-triggers the anti-bot wall); a short settle lets
-      // the renderer un-throttle before we read its DOM.
+      const delay = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms);
+        });
+      const snapshotMessage = (snapshot: BrandBrowserSnapshot): string | null =>
+        snapshot.status === 'ready' ? null : snapshot.message;
+      const hasBrowserFallback = (): boolean => {
+        const handle = getBrandBrowser(project.id, BRAND_BROWSER_TAB_ID);
+        return Boolean(handle?.isDesktopWebview);
+      };
+      const extractSnapshot = async (snapshot: BrandBrowserSnapshot): Promise<boolean> => {
+        if (snapshot.status !== 'ready') return false;
+        if (!brandBrowserSnapshotMatchesSource(snapshot.baseUrl, brandExtractionSourceUrl)) {
+          // The Browser tab/saved archive is for a different page than the brand
+          // source. Stop instead of extracting a design system for the wrong site.
+          setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
+          setProjectActionsToast({
+            message: t('chat.brandBrowserAssistReadFailed'),
+            details: null,
+            tone: 'error',
+            ttlMs: 7000,
+          });
+          return true;
+        }
+        const outcome = await extractBrandFromHtml(brandId, {
+          html: snapshot.html,
+          css: snapshot.css,
+          baseUrl: snapshot.baseUrl,
+        });
+        if (!outcome.ok) {
+          // Recoverable, not terminal: the read may have caught the page mid-load
+          // / still on the wall. Keep the kit in the calm `needs_input` state (a
+          // retry or the agent fallback can still finish it) instead of flashing
+          // the red "Extraction failed" terminal. The toast explains the retry.
+          setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
+          setProjectActionsToast({
+            message: outcome.error,
+            details: null,
+            tone: 'error',
+            ttlMs: 6000,
+          });
+          return true;
+        }
+        await refreshAfterProgrammaticContinue('ready');
+        return true;
+      };
+
+      const localSnapshot = await readLocalBrowserPageArchiveSnapshot(brandExtractionSourceUrl);
+      if (await extractSnapshot(localSnapshot)) return;
+
+      const daemonOutcome = await continueBrandExtraction(brandId);
+      let fallbackMessage: string | null = null;
+      if (daemonOutcome.ok) {
+        await refreshAfterProgrammaticContinue(
+          daemonOutcome.result.status,
+          daemonOutcome.result.conversationId,
+        );
+        if (daemonOutcome.result.status === 'ready') return;
+        if (!isOpenDesignHostAvailable() && !hasBrowserFallback()) return;
+      } else {
+        fallbackMessage = daemonOutcome.error;
+        if (!isOpenDesignHostAvailable() && !hasBrowserFallback()) {
+          setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
+          setProjectActionsToast({
+            message: daemonOutcome.error,
+            details: null,
+            tone: 'error',
+            ttlMs: 5000,
+          });
+          return;
+        }
+      }
+
+      // Foreground the pinned Browser tab before either live DOM communication
+      // or invoking its page-snapshot downloader. When the user clicks Continue
+      // from the preview tab, the browser <webview> may be `display:none` and
+      // Electron can throttle its renderer; a focus-only request wakes it
+      // without navigating/re-triggering a wall.
       if (isOpenDesignHostAvailable() && brandExtractionSourceUrl) {
         setBrowserOpenRequest({
           tabId: BRAND_BROWSER_TAB_ID,
@@ -6656,85 +6879,30 @@ export function ProjectView({
           nonce: Date.now(),
           focusOnly: true,
         });
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 600);
-        });
+        await delay(600);
       }
-      // Prefer the live, post-wall DOM out of the pinned Browser tab. Read it
-      // BEFORE switching the workspace to the preview so the read runs against
-      // the now-foregrounded browser tab.
-      const snapshot = await readBrandBrowserSnapshotWithRetry(BRAND_BROWSER_TAB_ID);
+
+      const liveSnapshot = await readBrandBrowserSnapshotWithRetry(BRAND_BROWSER_TAB_ID);
       requestOpenFile(brandPreviewFile);
+      if (await extractSnapshot(liveSnapshot)) return;
 
-      if (snapshot.status === 'ready') {
-        if (brandBrowserSnapshotMatchesSource(snapshot.baseUrl, brandExtractionSourceUrl)) {
-          const outcome = await extractBrandFromHtml(brandId, {
-            html: snapshot.html,
-            css: snapshot.css,
-            baseUrl: snapshot.baseUrl,
-          });
-          if (!outcome.ok) {
-            // Recoverable, not terminal: the read may have caught the page mid-load
-            // / still on the wall. Keep the kit in the calm `needs_input` state (a
-            // retry or the agent fallback can still finish it) instead of flashing
-            // the red "Extraction failed" terminal. The toast explains the retry.
-            setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
-            setProjectActionsToast({
-              message: outcome.error,
-              details: null,
-              tone: 'error',
-              ttlMs: 6000,
-            });
-            return;
-          }
-          await refreshAfterProgrammaticContinue('ready');
-          return;
-        }
-        // The Browser tab is parked on a different page than the brand source —
-        // re-extracting its DOM would describe the wrong site. Guide the user
-        // rather than silently re-running the (still-walled) server fetch. This
-        // is recoverable (navigate back to the source and retry), so stay in the
-        // calm `needs_input` state rather than the red "Extraction failed".
-        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
-        setProjectActionsToast({
-          message: t('chat.brandBrowserAssistReadFailed'),
-          details: null,
-          tone: 'error',
-          ttlMs: 7000,
-        });
-        return;
-      }
+      const archivedSnapshot = await downloadBrandBrowserPageArchive(brandExtractionSourceUrl);
+      requestOpenFile(brandPreviewFile);
+      if (await extractSnapshot(archivedSnapshot)) return;
 
-      // No readable live DOM. On the desktop host the Browser tab is the only
-      // way past the anti-bot wall, so a server re-fetch would just hit it
-      // again — surface the reason and stop. The web-only host has no in-app
-      // webview at all, so the server fetch is its only available path.
-      if (isOpenDesignHostAvailable()) {
-        // The webview was not readable yet (still mounting, mid-redirect, or the
-        // page hung on the wall). Recoverable — clear/settle the page and click
-        // Continue again — so keep the calm `needs_input` state, not `failed`.
-        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
-        setProjectActionsToast({
-          message: snapshot.message || t('chat.brandBrowserAssistReadFailed'),
-          details: null,
-          tone: 'error',
-          ttlMs: 7000,
-        });
-        return;
-      }
-
-      const outcome = await continueBrandExtraction(brandId);
-      if (!outcome.ok) {
-        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
-        setProjectActionsToast({
-          message: outcome.error,
-          details: null,
-          tone: 'error',
-          ttlMs: 5000,
-        });
-        return;
-      }
-      await refreshAfterProgrammaticContinue(outcome.result.status, outcome.result.conversationId);
+      // Still no readable local source. Recoverable — clear/settle/download the
+      // Browser page and click Continue again, or use the agent fallback.
+      setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
+      setProjectActionsToast({
+        message:
+          snapshotMessage(archivedSnapshot) ||
+          snapshotMessage(liveSnapshot) ||
+          fallbackMessage ||
+          t('chat.brandBrowserAssistReadFailed'),
+        details: null,
+        tone: 'error',
+        ttlMs: 7000,
+      });
     })()
       .catch((err) => {
         setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
@@ -6759,8 +6927,11 @@ export function ProjectView({
     onDesignSystemsRefresh,
     onProjectsRefresh,
     projectDetail,
+    project.id,
     projectFiles,
     projectIsProgrammaticBrandExtraction,
+    downloadBrandBrowserPageArchive,
+    readLocalBrowserPageArchiveSnapshot,
     readBrandBrowserSnapshotWithRetry,
     refreshConversationsForProgrammaticBrandRetry,
     refreshWorkspaceItems,
@@ -6846,6 +7017,44 @@ export function ProjectView({
     brandCreateDesignStarting,
     designSystemProject,
     onCreateProjectFromDesignSystem,
+  ]);
+
+  const handleCreateDesignSystemFromProject = useCallback(() => {
+    if (
+      projectDesignSystemCreateStarting ||
+      projectIsDesignSystemProject ||
+      !onCreateDesignSystemFromProject
+    ) {
+      return;
+    }
+    const name = designSystemNameForSourceProject(currentProject);
+    const pendingPrompt = buildCreateDesignSystemFromProjectPrompt({
+      project: currentProject,
+      projectFiles,
+      activeDesignSystem: activeDesignSystemSummary,
+    });
+    setProjectDesignSystemCreateStarting(true);
+    void Promise.resolve(onCreateDesignSystemFromProject(currentProject.id, {
+      name,
+      pendingPrompt,
+    }))
+      .catch((err) => {
+        setProjectActionsToast({
+          message: err instanceof Error ? err.message : String(err),
+          details: null,
+          tone: 'error',
+        });
+      })
+      .finally(() => {
+        setProjectDesignSystemCreateStarting(false);
+      });
+  }, [
+    activeDesignSystemSummary,
+    currentProject,
+    onCreateDesignSystemFromProject,
+    projectDesignSystemCreateStarting,
+    projectFiles,
+    projectIsDesignSystemProject,
   ]);
 
   // Continue in CLI / Finalize design package handlers + keyboard
@@ -7259,6 +7468,10 @@ export function ProjectView({
               continueBrandExtractionBusy={brandProgrammaticContinueStarting}
               onCreateDesignFromActiveDesignSystem={handleCreateDesignFromActiveDesignSystem}
               createDesignFromActiveDesignSystemBusy={brandCreateDesignStarting}
+              onCreateDesignSystemFromProject={
+                projectIsDesignSystemProject ? undefined : handleCreateDesignSystemFromProject
+              }
+              createDesignSystemFromProjectBusy={projectDesignSystemCreateStarting}
               onBrandBrowserAssistConfirm={handleBrandBrowserAssistConfirm}
               composerDraftSignal={composerDraftSignal}
               petConfig={config.pet}

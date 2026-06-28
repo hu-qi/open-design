@@ -329,6 +329,8 @@ interface Props {
   nextStepContinueAiExtractionBusy?: boolean;
   onNextStepCreateDesign?: () => void;
   nextStepCreateDesignBusy?: boolean;
+  onNextStepCreateDesignSystem?: () => void;
+  nextStepCreateDesignSystemBusy?: boolean;
   onPickSkill?: (skillId: string) => void;
   onArtifactDownload?: (fileName: string) => void;
   nextStepSkills?: SkillSummary[];
@@ -371,6 +373,7 @@ const ASSISTANT_MESSAGE_COMPARED_PROPS: Array<keyof Props> = [
   'nextStepContinueExtractionBusy',
   'nextStepContinueAiExtractionBusy',
   'nextStepCreateDesignBusy',
+  'nextStepCreateDesignSystemBusy',
   // Memoized + stable from ChatPane; compared so a late skill-list load
   // refreshes the featured next-step rows' `@skill` hover detail and the
   // More → Design toolbox global resources.
@@ -446,6 +449,8 @@ function AssistantMessageImpl({
   nextStepContinueAiExtractionBusy,
   onNextStepCreateDesign,
   nextStepCreateDesignBusy,
+  onNextStepCreateDesignSystem,
+  nextStepCreateDesignSystemBusy,
   onPickSkill,
   onArtifactDownload,
   nextStepSkills,
@@ -655,8 +660,10 @@ function AssistantMessageImpl({
           : effectiveNextStepVariant === 'project-incomplete'
             ? !!onNextStepPromptAction ||
               !!onToolboxAction ||
+              !!onNextStepCreateDesignSystem ||
               (!!nextStepArtifactName && (!!onArtifactShare || !!onArtifactDownload))
             : !!onToolboxAction ||
+              !!onNextStepCreateDesignSystem ||
               (!!nextStepArtifactName && (!!onArtifactShare || !!onArtifactDownload));
   // Terminal turns should leave the user with an actionable path, including
   // canceled/failed/no-artifact turns. Artifact-backed cards still wire Share
@@ -884,6 +891,8 @@ function AssistantMessageImpl({
             continueAiExtractionBusy={Boolean(isLast && nextStepContinueAiExtractionBusy)}
             onCreateDesign={isLast ? onNextStepCreateDesign : undefined}
             createDesignBusy={Boolean(isLast && nextStepCreateDesignBusy)}
+            onCreateDesignSystem={isLast ? onNextStepCreateDesignSystem : undefined}
+            createDesignSystemBusy={Boolean(isLast && nextStepCreateDesignSystemBusy)}
             onPickSkill={isLast ? onPickSkill : undefined}
             onDownload={isLast && nextStepArtifactName ? onArtifactDownload : undefined}
             skills={isLast ? nextStepSkills : undefined}

@@ -591,6 +591,10 @@ interface Props {
   // Creates a fresh design project using the current extracted design system.
   onCreateDesignFromActiveDesignSystem?: () => void;
   createDesignFromActiveDesignSystemBusy?: boolean;
+  // Duplicates a regular project into a new design-system workspace and starts
+  // the design-system generation pass from that copied evidence.
+  onCreateDesignSystemFromProject?: () => void;
+  createDesignSystemFromProjectBusy?: boolean;
   // Bumped by the parent to push a draft into the composer (used by the
   // "Import repo" CTA). The nonce lets the same text fire more than once.
   composerDraftSignal?: { text: string; nonce: number };
@@ -822,6 +826,8 @@ export function ChatPane({
   continueBrandExtractionBusy,
   onCreateDesignFromActiveDesignSystem,
   createDesignFromActiveDesignSystemBusy,
+  onCreateDesignSystemFromProject,
+  createDesignSystemFromProjectBusy,
   composerDraftSignal,
   petConfig,
   onAdoptPet,
@@ -940,6 +946,7 @@ export function ChatPane({
     onNextStepContinueExtraction: onContinueBrandExtraction,
     onNextStepContinueAiExtraction: onContinueBrandAgentExtraction,
     onNextStepCreateDesign: onCreateDesignFromActiveDesignSystem,
+    onNextStepCreateDesignSystem: onCreateDesignSystemFromProject,
   });
   assistantCallbacksRef.current = {
     onContinueRemainingTasks,
@@ -952,6 +959,7 @@ export function ChatPane({
     onNextStepContinueExtraction: onContinueBrandExtraction,
     onNextStepContinueAiExtraction: onContinueBrandAgentExtraction,
     onNextStepCreateDesign: onCreateDesignFromActiveDesignSystem,
+    onNextStepCreateDesignSystem: onCreateDesignSystemFromProject,
   };
   // Featured design-toolbox follow-up rows on the assistant "next step" card.
   // The toolbox left the "+" menu, so these route straight into the composer
@@ -2262,6 +2270,8 @@ export function ChatPane({
                 nextStepContinueAiExtractionBusy={continueBrandAgentExtractionBusy}
                 onNextStepCreateDesign={onCreateDesignFromActiveDesignSystem}
                 nextStepCreateDesignBusy={createDesignFromActiveDesignSystemBusy}
+                onNextStepCreateDesignSystem={onCreateDesignSystemFromProject}
+                nextStepCreateDesignSystemBusy={createDesignSystemFromProjectBusy}
                 onPickSkill={handlePickSkill}
                 onArtifactDownload={onArtifactDownload}
                 nextStepSkills={skills}
@@ -2598,6 +2608,7 @@ interface AssistantCallbacks {
   onNextStepContinueExtraction: (() => void) | undefined;
   onNextStepContinueAiExtraction: (() => void) | undefined;
   onNextStepCreateDesign: (() => void) | undefined;
+  onNextStepCreateDesignSystem: (() => void) | undefined;
 }
 
 type ChatRenderItem = {
@@ -2664,6 +2675,8 @@ function ChatRows({
   nextStepContinueAiExtractionBusy,
   onNextStepCreateDesign,
   nextStepCreateDesignBusy,
+  onNextStepCreateDesignSystem,
+  nextStepCreateDesignSystemBusy,
   onPickSkill,
   onArtifactDownload,
   nextStepSkills,
@@ -2715,6 +2728,8 @@ function ChatRows({
   nextStepContinueAiExtractionBusy?: boolean;
   onNextStepCreateDesign?: () => void;
   nextStepCreateDesignBusy?: boolean;
+  onNextStepCreateDesignSystem?: () => void;
+  nextStepCreateDesignSystemBusy?: boolean;
   onPickSkill?: (skillId: string) => void;
   onArtifactDownload?: (fileName: string) => void;
   nextStepSkills?: SkillSummary[];
@@ -2867,6 +2882,12 @@ function ChatRows({
             : undefined
         }
         nextStepCreateDesignBusy={nextStepCreateDesignBusy}
+        onNextStepCreateDesignSystem={
+          onNextStepCreateDesignSystem
+            ? () => assistantCallbacksRef.current.onNextStepCreateDesignSystem?.()
+            : undefined
+        }
+        nextStepCreateDesignSystemBusy={nextStepCreateDesignSystemBusy}
         onPickSkill={onPickSkill}
         onArtifactDownload={onArtifactDownload}
         nextStepSkills={nextStepSkills}

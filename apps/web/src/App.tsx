@@ -83,6 +83,7 @@ import {
 import { applyAppearanceToDocument } from './state/appearance';
 import { isMacPlatform } from './utils/platform';
 import {
+  createDesignSystemProjectFromProject,
   createProject,
   createPluginShareProject,
   deleteProject as deleteProjectApi,
@@ -1568,6 +1569,34 @@ function AppInner() {
     [handleCreateProject, t],
   );
 
+  const handleCreateDesignSystemFromProject = useCallback(
+    async (
+      sourceProjectId: string,
+      input: { name?: string; pendingPrompt?: string },
+    ) => {
+      const result = await createDesignSystemProjectFromProject(sourceProjectId, input);
+      try {
+        window.sessionStorage.setItem(`od:auto-send-first:${result.project.id}`, '1');
+      } catch {
+        // If sessionStorage is unavailable, the project still opens with the
+        // pending prompt ready for the user to send manually.
+      }
+      rememberLocalProject(result.project.id);
+      setProjects((curr) => [
+        result.project,
+        ...curr.filter((p) => p.id !== result.project.id),
+      ]);
+      void refreshDesignSystems();
+      navigate({
+        kind: 'project',
+        projectId: result.project.id,
+        conversationId: result.conversationId,
+        fileName: null,
+      });
+    },
+    [refreshDesignSystems, rememberLocalProject],
+  );
+
   const handleCreatePluginShareProject = useCallback(
     async (
       pluginId: string,
@@ -2205,6 +2234,7 @@ function AppInner() {
         onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
         onDesignSystemsRefresh={refreshDesignSystems}
         onCreateProjectFromDesignSystem={handleCreateProjectFromDesignSystem}
+        onCreateDesignSystemFromProject={handleCreateDesignSystemFromProject}
       />
     );
   } else {

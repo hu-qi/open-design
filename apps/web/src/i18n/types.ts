@@ -81,6 +81,33 @@ export interface Dict {
   'common.hoursShort': string;
   'common.daysShort': string;
   'common.untitled': string;
+  'designBrowser.savePageBrief': string;
+  'designBrowser.menu': string;
+  'designBrowser.copyScreenshot': string;
+  'designBrowser.hardReload': string;
+  'designBrowser.copyUrl': string;
+  'designBrowser.openExternal': string;
+  'designBrowser.downloadPage': string;
+  'designBrowser.clearHistory': string;
+  'designBrowser.clearCookies': string;
+  'designBrowser.clearAllData': string;
+  'designBrowser.status.noUrlToCopy': string;
+  'designBrowser.status.urlCopied': string;
+  'designBrowser.status.openHttpFirst': string;
+  'designBrowser.status.openBeforeScreenshot': string;
+  'designBrowser.status.screenshotSaved': string;
+  'designBrowser.status.screenshotFailed': string;
+  'designBrowser.status.openBeforeBrief': string;
+  'designBrowser.status.briefSaveFailed': string;
+  'designBrowser.status.openBeforeDownload': string;
+  'designBrowser.status.pageSnapshotStarted': string;
+  'designBrowser.status.pageSnapshotUnsupported': string;
+  'designBrowser.status.pageSnapshotFailed': string;
+  'designBrowser.status.pageSnapshotSaved': string;
+  'designBrowser.status.desktopDataUnavailable': string;
+  'designBrowser.status.browserDataCleared': string;
+  'designBrowser.status.browserDataClearFailed': string;
+  'designBrowser.status.historyCleared': string;
 
   // Plugin registry / details
   'plugins.availableDetails.provenance': string;
@@ -2383,6 +2410,9 @@ export interface Dict {
   'chat.brandBrowserAssistDesktopOnly': string;
   'chat.brandBrowserAssistReadFailed': string;
   'chat.brandBrowserAssistMessage': string;
+  'chat.brandBrowserLocalSnapshotMissing': string;
+  'chat.brandBrowserLocalSnapshotReadFailed': string;
+  'chat.brandBrowserSnapshotSaveFailed': string;
   'brandEnrichment.title': string;
   'brandEnrichment.body': string;
   'brandEnrichment.cta': string;
@@ -3258,6 +3288,9 @@ export interface Dict {
   'nextStep.more': string;
   'nextStep.share': string;
   'nextStep.download': string;
+  'nextStep.createDesignSystemTitle': string;
+  'nextStep.createDesignSystemBody': string;
+  'nextStep.createDesignSystemBusy': string;
   'nextStep.contribute': string;
   'nextStep.projectContinueTitle': string;
   'nextStep.projectGenerateArtifactTitle': string;

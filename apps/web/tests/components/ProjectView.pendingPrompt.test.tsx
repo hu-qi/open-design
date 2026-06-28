@@ -616,7 +616,7 @@ describe('ProjectView pending prompt seeding', () => {
         baseUrl: 'https://economist.com/',
       });
     });
-    expect(mockedContinueBrandExtraction).not.toHaveBeenCalled();
+    expect(mockedContinueBrandExtraction).toHaveBeenCalledWith('brand-retry');
     await waitFor(() => expect(onDesignSystemsRefresh).toHaveBeenCalled());
     await waitFor(() => expect(onProjectsRefresh).toHaveBeenCalled());
     await waitFor(() => {
@@ -663,7 +663,7 @@ describe('ProjectView pending prompt seeding', () => {
         baseUrl: 'https://www.economist.com/',
       });
     });
-    expect(mockedContinueBrandExtraction).not.toHaveBeenCalled();
+    expect(mockedContinueBrandExtraction).toHaveBeenCalledWith('brand-retry');
   });
 
   it('continues browser DOM extraction after a same-site locale redirect from the source URL', async () => {
@@ -701,7 +701,7 @@ describe('ProjectView pending prompt seeding', () => {
         baseUrl: 'https://example.com/en/',
       });
     });
-    expect(mockedContinueBrandExtraction).not.toHaveBeenCalled();
+    expect(mockedContinueBrandExtraction).toHaveBeenCalledWith('brand-retry');
   });
 
   it('falls back to programmatic retry when the Browser tab is on another origin', async () => {

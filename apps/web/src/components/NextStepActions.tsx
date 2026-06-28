@@ -160,6 +160,9 @@ interface Props {
   // Create a new design using the active brand/design system.
   onCreateDesign?: () => void;
   createDesignBusy?: boolean;
+  // Create a new design-system project from the current regular project.
+  onCreateDesignSystem?: () => void;
+  createDesignSystemBusy?: boolean;
   // Seed the composer with a specific global skill resource picked from the toolbox.
   onPickSkill?: (skillId: string) => void;
   // Available global skill resources. The full composer toolbox also includes
@@ -181,7 +184,7 @@ const MENU_WIDTH = 200;
 // Conservative heights used to keep a flyout on-screen vertically (over-estimating
 // only shifts it further up, which is always safe).
 const DETAIL_HEIGHT = 180;
-const MENU_HEIGHT = 150;
+const MENU_HEIGHT = 180;
 // The Design toolbox submenu mirrors the plus-menu panel: title/search,
 // follow-up actions, and global resources.
 const TOOLBOX_SUB_WIDTH = 300;
@@ -247,6 +250,8 @@ export function NextStepActions({
   continueAiExtractionBusy = false,
   onCreateDesign,
   createDesignBusy = false,
+  onCreateDesignSystem,
+  createDesignSystemBusy = false,
   onPickSkill,
   skills = [],
   toolboxSkillNames,
@@ -408,6 +413,13 @@ export function NextStepActions({
     closeAll();
   }, [closeAll, createDesignBusy, onCreateDesign, track]);
 
+  const handleCreateDesignSystem = useCallback(() => {
+    if (createDesignSystemBusy) return;
+    track('toolbox_action', 'project-create-design-system');
+    onCreateDesignSystem?.();
+    closeAll();
+  }, [closeAll, createDesignSystemBusy, onCreateDesignSystem, track]);
+
   const handleContinueAiExtraction = useCallback(() => {
     if (continueAiExtractionBusy) return;
     track('toolbox_action', 'brand-continue-ai-extraction');
@@ -486,7 +498,11 @@ export function NextStepActions({
   const canDownload = !!(fileName && onDownload);
   const canContribute = !!onShareToOpenDesign;
   const hasShareGroup = canShare || canDownload || canContribute;
-  const hasMore = !!onToolboxAction || hasShareGroup;
+  const showCreateDesignSystem = (
+    variant === 'default' ||
+    variant === 'project-incomplete'
+  ) && !!onCreateDesignSystem;
+  const hasMore = showCreateDesignSystem || !!onToolboxAction || hasShareGroup;
   const showToolbox = !!onToolboxAction;
   const showProjectIncompleteRows = variant === 'project-incomplete' && !!onPromptAction;
   const showDesignSystemRows = variant === 'design-system' && !!onPromptAction;
@@ -677,7 +693,7 @@ export function NextStepActions({
           )
         : null}
 
-      {/* Level 2: More → [Design toolbox, Share] */}
+      {/* Level 2: More → [Create design system, Design toolbox, Share] */}
       {more && typeof document !== 'undefined'
         ? createPortal(
             <div
@@ -687,6 +703,27 @@ export function NextStepActions({
               style={{ left: more.left, top: more.top }}
               {...keepOpen}
             >
+              {showCreateDesignSystem ? (
+                <button
+                  type="button"
+                  className={styles.flyoutRow}
+                  data-testid="next-step-more-create-design-system"
+                  disabled={createDesignSystemBusy}
+                  title={t('nextStep.createDesignSystemBody')}
+                  onClick={handleCreateDesignSystem}
+                >
+                  <Icon
+                    name={createDesignSystemBusy ? 'spinner' : 'blocks'}
+                    size={14}
+                    className={createDesignSystemBusy ? 'icon-spin' : styles.toolboxRowIcon}
+                  />
+                  <span className={styles.toolboxRowTitle}>
+                    {createDesignSystemBusy
+                      ? t('nextStep.createDesignSystemBusy')
+                      : t('nextStep.createDesignSystemTitle')}
+                  </span>
+                </button>
+              ) : null}
               {showToolbox ? (
                 <button
                   type="button"

@@ -996,6 +996,66 @@ function buildDesignSystemCopySourceContext(input: {
   ].join('\n');
 }
 
+function buildDesignSystemCopyPendingPrompt(input: {
+  sourceProject: any;
+  targetProjectId: string;
+  designSystemId: string;
+  copiedFiles: string[];
+}): string {
+  const metadata =
+    input.sourceProject?.metadata && typeof input.sourceProject.metadata === 'object'
+      ? JSON.stringify(input.sourceProject.metadata, null, 2)
+      : '{}';
+  const visibleFiles = input.copiedFiles
+    .slice(0, 140)
+    .map((name) => `  - ${name}`);
+  return [
+    'Create this project as a complete Open Design design system workspace.',
+    '',
+    'Autonomy requirement:',
+    '- Do not ask setup or clarification questions during design-system generation.',
+    '- Do not emit `<question-form>`, "Quick brief — 30 seconds", direction cards, choice cards, or any UI that waits for user input.',
+    '- The source project already contains the evidence. Choose sensible defaults where details are missing and begin generating the design-system artifacts immediately.',
+    '',
+    'Source project handoff:',
+    `- Source project id: ${input.sourceProject.id}`,
+    `- Source project name: ${input.sourceProject.name}`,
+    `- New design-system project id: ${input.targetProjectId}`,
+    `- New design-system id: ${input.designSystemId}`,
+    '- Read `context/source-context.md` first. It lists the copied project files and original project metadata.',
+    '- Treat every copied file, uploaded asset, reference image, browser snapshot, sketch, generated artifact, and context note in this workspace as design-system evidence.',
+    '- Use the copied project outputs to infer real visual language, components, layout, interaction patterns, copy tone, tokens, typography, spacing, assets, and anti-patterns.',
+    '- Do not create another project or another design-system id. Update this new design-system project in place.',
+    '',
+    'Source project metadata:',
+    '```json',
+    metadata,
+    '```',
+    '',
+    'Copied files to inspect:',
+    ...(visibleFiles.length > 0 ? visibleFiles : ['  - (none copied; rely on context/source-context.md and project metadata)']),
+    input.copiedFiles.length > visibleFiles.length
+      ? `  - ...and ${input.copiedFiles.length - visibleFiles.length} more files listed in context/source-context.md`
+      : '',
+    '',
+    'Expected output:',
+    '- A clear `DESIGN.md` with product context, visual foundations, color, type, spacing, layout, components, motion, voice, and anti-patterns.',
+    '- A reusable package: `README.md`, `SKILL.md`, `colors_and_type.css`, provenance notes, `assets/`, `build/` when runtime icons exist, optional `fonts/`, focused `preview/` cards, preserved source examples, and `ui_kits/app/`.',
+    '- Preserve real source assets when evidence provides them: logos, app icons, tray icons, avatars, wordmarks, imagery, and font files belong in `assets/`, `build/`, or `fonts/`, not only in prose.',
+    '- Preserve high-signal source/component examples outside `context/` when copied files include substantial implementation or artifact code. Do not replace them with tiny stubs.',
+    '- Split review previews into focused cards for colors, typography, spacing, radius/shadows, components, brand assets, and applied UI surfaces. Preview cards must visibly load preserved files when available.',
+    '- Build `ui_kits/app/` as an applied interface kit that reflects the source project, with an index page and component files when the evidence supports them. Do not leave it as a generic static mock.',
+    '- Keep `README.md`, `SKILL.md`, `DESIGN.md`, preview manifest text, and `ui_kits/app/README.md` synchronized with the final file structure.',
+    '',
+    'Completion gate:',
+    '- Finish only after the project contains reviewable design-system artifacts and the right-side Design System tab can inspect them.',
+    '- Before your final response, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings`.',
+    '- Fix every audit error and design-quality warning. If an issue cannot be fixed because source evidence is missing, explain that blocker instead of claiming the design system is ready.',
+    '',
+    'When finished, summarize the generated files and name the first previews reviewers should inspect.',
+  ].filter(Boolean).join('\n');
+}
+
 export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDeps) {
   const { db, design } = ctx;
   const { sendApiError, createSseResponse } = ctx.http;
@@ -1585,6 +1645,157 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
           : {}),
       };
       res.json(body);
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
+
+  app.post('/api/projects/:id/design-system-copy', async (req, res) => {
+    const sourceProject = getProject(db, req.params.id);
+    try {
+      const locations = await configuredProjectLocations();
+      if (!sourceProject || !projectVisibleForLocations(sourceProject, locations)) {
+        return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      }
+      if (isDesignSystemLikeProject(sourceProject)) {
+        return sendApiError(
+          res,
+          400,
+          'PROJECT_ALREADY_DESIGN_SYSTEM',
+          'project is already a design-system workspace',
+        );
+      }
+
+      const targetProjectId = randomId();
+      const targetName = normalizeDesignSystemCopyName(req.body?.name, sourceProject);
+      const requestedPendingPrompt = normalizePendingPrompt(req.body?.pendingPrompt);
+      const sourceNotes = `Created from Open Design project "${sourceProject.name}" (${sourceProject.id}).`;
+      let createdDesignSystemId: string | null = null;
+      let insertedProject = false;
+      try {
+        const designSystem = await createUserDesignSystem(USER_DESIGN_SYSTEMS_DIR, {
+          title: targetName,
+          summary: sourceNotes,
+          category: 'Project Design System',
+          surface: 'web',
+          status: 'draft',
+          artifactMode: 'agent-managed',
+          sourceNotes,
+          provenance: {
+            notes: sourceNotes,
+            sourceNotes,
+          },
+        });
+        createdDesignSystemId = designSystem.id;
+
+        const metadata = {
+          kind: 'other',
+          importedFrom: 'design-system',
+          entryFile: 'DESIGN.md',
+          sourceFileName: designSystem.id,
+          nameSource: 'generated',
+          sourceProjectId: sourceProject.id,
+          sourceProjectName: sourceProject.name,
+        };
+        await ensureProject(PROJECTS_DIR, targetProjectId, metadata);
+
+        const sourceFiles = await listFiles(PROJECTS_DIR, sourceProject.id, {
+          metadata: sourceProject.metadata,
+        });
+        const copiedFiles: string[] = [];
+        const skippedFiles: Array<{ name: string; reason: string }> = [];
+        for (const file of sourceFiles) {
+          if (!file?.name || typeof file.name !== 'string') continue;
+          try {
+            const sourceFile = await readProjectFile(
+              PROJECTS_DIR,
+              sourceProject.id,
+              file.name,
+              sourceProject.metadata,
+            );
+            await writeProjectFile(
+              PROJECTS_DIR,
+              targetProjectId,
+              sourceFile.name,
+              sourceFile.buffer,
+              {
+                overwrite: true,
+                ...(sourceFile.artifactManifest ? { artifactManifest: sourceFile.artifactManifest } : {}),
+              },
+              metadata,
+            );
+            copiedFiles.push(sourceFile.name);
+          } catch (err: any) {
+            skippedFiles.push({
+              name: file.name,
+              reason: String(err?.message ?? err),
+            });
+          }
+        }
+
+        const pendingPrompt = requestedPendingPrompt ?? buildDesignSystemCopyPendingPrompt({
+          sourceProject,
+          targetProjectId,
+          designSystemId: designSystem.id,
+          copiedFiles,
+        });
+        const now = Date.now();
+        const project = insertProject(db, {
+          id: targetProjectId,
+          name: targetName,
+          skillId: null,
+          designSystemId: designSystem.id,
+          pendingPrompt,
+          metadata,
+          customInstructions: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+        insertedProject = true;
+        const conversationId = randomId();
+        insertConversation(db, {
+          id: conversationId,
+          projectId: targetProjectId,
+          title: null,
+          sessionMode: 'design',
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await writeProjectFile(
+          PROJECTS_DIR,
+          targetProjectId,
+          'context/source-context.md',
+          Buffer.from(
+            buildDesignSystemCopySourceContext({
+              sourceProject,
+              targetProjectId,
+              designSystemId: designSystem.id,
+              copiedFiles,
+              skippedFiles,
+            }),
+            'utf8',
+          ),
+          { overwrite: true },
+          metadata,
+        );
+        await linkUserDesignSystemProject(USER_DESIGN_SYSTEMS_DIR, designSystem.id, targetProjectId);
+        /** @type {import('@open-design/contracts').CreateDesignSystemProjectFromProjectResponse} */
+        const body = {
+          project,
+          conversationId,
+          designSystemId: designSystem.id,
+          copiedFiles,
+        };
+        res.json(body);
+      } catch (err) {
+        if (insertedProject) dbDeleteProject(db, targetProjectId);
+        await removeProjectDir(PROJECTS_DIR, targetProjectId).catch(() => {});
+        if (createdDesignSystemId) {
+          await deleteUserDesignSystem(USER_DESIGN_SYSTEMS_DIR, createdDesignSystemId).catch(() => false);
+        }
+        throw err;
+      }
     } catch (err: any) {
       sendApiError(res, 400, 'BAD_REQUEST', String(err));
     }

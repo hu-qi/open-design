@@ -15,10 +15,26 @@
  *  `FileWorkspace` BROWSER_TAB_PREFIX numbering. */
 export const BRAND_BROWSER_TAB_ID = '__browser__:1';
 
+export interface BrandBrowserPageSnapshotResult {
+  ok: boolean;
+  baseUrl?: string;
+  htmlFile?: string;
+  cssFile?: string;
+  indexFile?: string;
+  manifestFile?: string;
+  message?: string;
+  savedResources?: number;
+  totalResources?: number;
+}
+
 export interface BrandBrowserHandle {
   /** Run a script inside the tab's webview. Returns null on the cross-origin
    *  <iframe> fallback (web-only host), where guest DOM access is impossible. */
   executeJavaScript: <T = unknown>(code: string, userGesture?: boolean) => Promise<T> | null;
+  /** Save the currently rendered page as Design Files (HTML, CSS digest,
+   *  best-effort resources, and manifest) using the same action exposed in the
+   *  Browser tab menu. */
+  downloadPageSnapshot?: () => Promise<BrandBrowserPageSnapshotResult>;
   /** The webview's current committed URL. */
   getURL: () => string;
   /** True only for the desktop Electron <webview>; false for the web-only
