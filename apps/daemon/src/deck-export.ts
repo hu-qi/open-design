@@ -64,7 +64,7 @@ export async function buildDeckRenderInput(
   );
   const title = displayTitle(options.title, options.fileName);
   return {
-    defaultFilename: `${safeFilename(title, 'deck')}`,
+    defaultFilename: safeDisplayFilename(title, 'deck'),
     title,
     input: {
       baseHref: rawBaseHref(options.daemonUrl, options.projectId, options.fileName),
@@ -219,10 +219,11 @@ function encodePathSegments(value: string): string {
     .join('/');
 }
 
-function safeFilename(name: string, fallback: string): string {
-  const slug = (name || fallback)
-    .replace(/[^\w.\-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return slug || fallback;
+function safeDisplayFilename(name: string, fallback: string): string {
+  const stem = (name || fallback)
+    .replace(/[\/\\\0-\x1f\x7f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return stem || fallback;
 }

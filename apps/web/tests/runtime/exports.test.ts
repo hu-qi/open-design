@@ -647,7 +647,7 @@ describe('binary project/design-system downloads', () => {
     expect(await capturedBlob!.text()).toBe('PK-editable-pptx');
   });
 
-  it('honors the server Content-Disposition filename over the local fallback', async () => {
+  it('honors the server UTF-8 Content-Disposition filename over the local fallback', async () => {
     // Production always returns a Content-Disposition (title/RFC-5987 based); the
     // happy-path test above only exercises the no-header fallback. This pins the
     // branch the download actually uses in the desktop runtime.
@@ -659,16 +659,16 @@ describe('binary project/design-system downloads', () => {
             status: 200,
             headers: {
               'content-disposition':
-                "attachment; filename=\"Pitch Deck.pptx\"; filename*=UTF-8''Pitch%20Deck.pptx",
+                "attachment; filename=\"Caf_ Deck __.pptx\"; filename*=UTF-8''Caf%C3%A9%20Deck%20%E7%AE%80%E6%8A%A5.pptx",
             },
           }),
       ),
     );
 
-    const res = await exportProjectAsPptx({ projectId: 'p', fileName: 'decks/pitch.html', title: 'Pitch Deck' });
+    const res = await exportProjectAsPptx({ projectId: 'p', fileName: 'decks/pitch.html', title: 'Café Deck 简报' });
 
     expect(res.ok).toBe(true);
-    expect(capturedFilename).toBe('Pitch Deck.pptx');
+    expect(capturedFilename).toBe('Café Deck 简报.pptx');
   });
 
   it('routes pdf format to the raster pdf-image endpoint', async () => {

@@ -200,6 +200,18 @@ describe('screenshot export desktop renderer file handoff', () => {
     expect(bytes.subarray(0, 4).toString('latin1')).toBe('%PDF'); // raster PDF assembled from the screenshots
   });
 
+  it('preserves non-ASCII export titles in the RFC 5987 filename', async () => {
+    const res = await fetch(`${baseUrl}/api/projects/${projectId}/export/image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: 'index.html', title: 'Café Deck 简报' }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toContain(
+      "filename*=UTF-8''Caf%C3%A9%20Deck%20%E7%AE%80%E6%8A%A5.png",
+    );
+  });
+
   it('omits page JPEG hints for omitted-deck PDF exports so detected decks stay PNG', async () => {
     const before = seenInputs.length;
     const res = await fetch(`${baseUrl}/api/projects/${projectId}/export`, {
