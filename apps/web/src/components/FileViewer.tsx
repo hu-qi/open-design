@@ -8763,17 +8763,18 @@ function HtmlViewer({
               </button>
               <span className="viewer-toolbar-tool-divider" aria-hidden />
               <button
-                className={`viewer-action viewer-action-icon od-tooltip${manualEditMode ? ' active' : ''}`}
+                className={`viewer-action od-tooltip${manualEditMode ? ' active' : ''}`}
                 type="button"
                 data-testid="manual-edit-mode-toggle"
-                data-tooltip={t('fileViewer.edit')}
+                data-tooltip="Edit"
                 data-tooltip-placement="bottom"
-                title={t('fileViewer.edit')}
-                aria-label={t('fileViewer.edit')}
+                title="Edit"
+                aria-label="Edit"
                 aria-pressed={manualEditMode}
                 onClick={activateManualEditTool}
               >
                 <RemixIcon name="edit-line" size={15} />
+                <span>Edit</span>
               </button>
               <span className="viewer-toolbar-tool-divider" aria-hidden />
               <button
