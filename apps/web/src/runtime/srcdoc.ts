@@ -2026,6 +2026,7 @@ function injectDeckBridge(doc: string, initialSlideIndex = 0): string {
   const safeInitialSlideIndex = Number.isFinite(initialSlideIndex)
     ? Math.max(0, Math.floor(initialSlideIndex))
     : 0;
+  const hasNativeSlideMessageHandler = /\bod:slide\b/.test(doc);
   const isFrameworkDeck = /\bid\s*=\s*["']deck-stage["']/i.test(doc);
   const styleFix = isFrameworkDeck
     ? ''
@@ -2034,6 +2035,7 @@ function injectDeckBridge(doc: string, initialSlideIndex = 0): string {
 </style>`;
   const script = `<script data-od-deck-bridge>(function(){
   var initialSlideIndex = ${safeInitialSlideIndex};
+  var nativeSlideMessageHandler = ${JSON.stringify(hasNativeSlideMessageHandler)};
   var didRestoreInitialSlide = initialSlideIndex <= 0;
   function slides(){
     // Structured selectors first so decorative .slide markup in non-deck
@@ -2399,11 +2401,39 @@ function injectDeckBridge(doc: string, initialSlideIndex = 0): string {
     didRestoreInitialSlide = true;
     gotoIndex(initialSlideIndex);
   }
+  var odSlideMessageBeforeIndex = -1;
   window.addEventListener('message', function(ev){
     var data = ev && ev.data;
     if (!data || data.type !== 'od:slide') return;
-    if (data.action === 'go' && typeof data.index === 'number') gotoIndex(data.index);
-    else go(data.action);
+    odSlideMessageBeforeIndex = activeIndex(slides());
+  }, true);
+  window.addEventListener('message', function(ev){
+    var data = ev && ev.data;
+    if (!data || data.type !== 'od:slide') return;
+    var before = odSlideMessageBeforeIndex;
+    odSlideMessageBeforeIndex = -1;
+    var current = activeIndex(slides());
+    if (nativeSlideMessageHandler && data.action !== 'go') {
+      setTimeout(report, 0);
+      return;
+    }
+    if (data.action === 'go' && typeof data.index === 'number') {
+      if (current === data.index) {
+        report();
+        return;
+      }
+      gotoIndex(data.index);
+      return;
+    }
+    // Some generated decks ship their own od:slide listener. Because their
+    // listener is registered before this bridge, it may already have consumed
+    // the same host command by the time we run. In that case report the new
+    // state instead of applying the command again.
+    if (before >= 0 && current !== before) {
+      report();
+      return;
+    }
+    go(data.action);
   });
   function ownDeckButton(id, action){
     var btn = document.getElementById(id);

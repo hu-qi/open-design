@@ -393,6 +393,27 @@ test('[P0] manual edit mode keeps deck navigation available for deck-shaped HTML
   await expect(frame.getByText('Slide Two')).toBeVisible();
 });
 
+test('[P0] deck host navigation advances one slide when the deck also handles slide messages', async ({ page }) => {
+  await routeMockAgents(page);
+  const projectId = await createEmptyProject(page, 'Deck keyboard single step');
+  await seedDeckArtifact(
+    page,
+    projectId,
+    'keyboard-deck.html',
+    'Keyboard Deck',
+    ['Slide One', 'Slide Two', 'Slide Three'],
+    { selfHandlesSlideMessages: true },
+  );
+  await page.goto(`/projects/${projectId}/files/keyboard-deck.html`);
+  await openDesignFile(page, 'keyboard-deck.html');
+
+  const frame = artifactPreviewFrame(page);
+  await expect(frame.getByText('Slide One')).toBeVisible();
+  await page.getByLabel('Next slide').click();
+  await expect(frame.getByText('Slide Two')).toBeVisible();
+  await expect(frame.getByText('Slide Three')).toBeHidden();
+});
+
 
 test('[P0] simple deck keeps the active slide stable across preview mode switches', async ({ page }) => {
   await routeMockAgents(page);
@@ -648,16 +669,40 @@ async function seedDeckArtifact(
   fileName: string,
   title: string,
   slides: string[],
+  options: { selfHandlesSlideMessages?: boolean } = {},
 ) {
   const slideHtml = slides
     .map((slide, index) => `<section class="slide" data-od-id="slide-${index + 1}"${index === 0 ? '' : ' hidden'}><h1>${slide}</h1></section>`)
     .join('\n');
+  const slideScript = options.selfHandlesSlideMessages
+    ? `<script>
+    (() => {
+      let active = 0;
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      function render() { slides.forEach((slide, index) => { slide.hidden = index !== active; }); }
+      window.addEventListener('message', (event) => {
+        if (!event.data || event.data.type !== 'od:slide') return;
+        if (event.data.action === 'next') active = Math.min(slides.length - 1, active + 1);
+        if (event.data.action === 'prev') active = Math.max(0, active - 1);
+        if (event.data.action === 'first') active = 0;
+        if (event.data.action === 'last') active = slides.length - 1;
+        if (event.data.action === 'go' && typeof event.data.index === 'number') {
+          active = Math.max(0, Math.min(slides.length - 1, event.data.index));
+        }
+        render();
+        window.parent.postMessage({ type: 'od:slide-state', active, count: slides.length }, '*');
+      });
+      render();
+      window.parent.postMessage({ type: 'od:slide-state', active, count: slides.length }, '*');
+    })();
+    </script>`
+    : '';
   const resp = await page.request.post(
     `/api/projects/${projectId}/files`,
     {
       data: {
         name: fileName,
-        content: `<!doctype html><html><body>${slideHtml}</body></html>`,
+        content: `<!doctype html><html><body>${slideHtml}${slideScript}</body></html>`,
         artifactManifest: {
           version: 1,
           kind: 'deck',
