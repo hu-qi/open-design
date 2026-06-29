@@ -430,6 +430,46 @@ describe('InlineModelSwitcher AMR row', () => {
     expect(within(popover).queryByText('$0.10')).toBeNull();
   });
 
+  it('routes inline upgrades through the signed-in AMR profile', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/integrations/vela/status') {
+        return new Response(
+          JSON.stringify({
+            loggedIn: true,
+            profile: 'test',
+            user: { id: 'user-1', email: 'manual-amr@example.local' },
+            account: { plan: 'plus', balanceUsd: '42.0000' },
+            configPath: '/Users/test/.amr/config.json',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderSwitcher({
+      telemetry: { metrics: true },
+      installationId: 'od-install-abc',
+    });
+
+    fireEvent.click(screen.getByTestId('inline-model-switcher-chip'));
+    const popover = screen.getByTestId('inline-model-switcher-popover');
+    await within(popover).findByText('$42.00');
+    fireEvent.click(screen.getByTestId('inline-model-switcher-account-upgrade'));
+
+    const [url, target, features] = openSpy.mock.calls[0] ?? [];
+    const parsed = new URL(String(url));
+    expect(parsed.origin).toBe('https://vela.powerformer.net');
+    expect(parsed.searchParams.get('view')).toBe('plans');
+    expect(parsed.searchParams.get('od_entry_source')).toBe('inline_amr_upgrade');
+    expect(parsed.searchParams.get('od_device_id')).toBe('od-install-abc');
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener,noreferrer');
+  });
+
   it('filters fetched BYOK provider models in the Home switcher search box', async () => {
     renderSwitcher(
       {

@@ -1257,6 +1257,13 @@ export function SettingsDialog({
     }).format(amount);
   }, [locale]);
 
+  const refreshAmrWalletSnapshot = useCallback(async (options: { refresh?: boolean } = {}) => {
+    setAmrWalletReady(false);
+    const next = await fetchAmrWalletSnapshot(options);
+    setAmrWalletSnapshot(next);
+    setAmrWalletReady(true);
+  }, []);
+
   useEffect(() => {
     const hasAmrAgent = agents.some((agent) => agent.id === 'amr' && agent.available);
     if (!hasAmrAgent) {
@@ -1330,6 +1337,7 @@ export function SettingsDialog({
       void fetchVelaLoginStatus().then((next) => {
         if (cancelled || !next) return;
         setAmrCardStatus(next);
+        if (next.loggedIn) void refreshAmrWalletSnapshot({ refresh: true });
       });
     };
     window.addEventListener('focus', resyncAmrStatus);
@@ -1339,7 +1347,7 @@ export function SettingsDialog({
       window.removeEventListener('focus', resyncAmrStatus);
       document.removeEventListener('visibilitychange', resyncAmrStatus);
     };
-  }, [agents]);
+  }, [agents, refreshAmrWalletSnapshot]);
 
   useEffect(() => {
     const hasAmrAgent = agents.some((agent) => agent.id === 'amr' && agent.available);
@@ -3681,14 +3689,17 @@ export function SettingsDialog({
                               : null;
                           const amrWalletVisible =
                             isAmrAgent && active && amrCardStatus?.loggedIn === true;
+                          const amrStatusBalance =
+                            amrWalletVisible
+                              ? formatVelaBalanceUsd(amrCardStatus?.account?.balanceUsd)
+                              : null;
                           const amrWalletBalance =
                             amrWalletVisible && amrWalletSnapshot?.status === 'available'
                               ? formatAmrWalletBalance(amrWalletSnapshot.balanceUsd)
                               : null;
                           const amrCardBalanceLabel =
                             isAmrAgent && active && amrCardStatus?.loggedIn
-                              ? amrWalletBalance ??
-                                formatVelaBalanceUsd(amrCardStatus.account?.balanceUsd)
+                              ? amrStatusBalance ?? amrWalletBalance
                               : null;
                           const amrCardPlanLabel =
                             isAmrAgent && active && amrCardStatus?.loggedIn
@@ -3838,6 +3849,27 @@ export function SettingsDialog({
                                               </span>
                                             </span>
                                           ) : null}
+                                          <button
+                                            type="button"
+                                            className="agent-card-amr-wallet-refresh"
+                                            title={t('settings.amrWalletRefreshTitle')}
+                                            aria-label={t('settings.amrWalletRefreshTitle')}
+                                            disabled={!amrWalletReady && !amrCardBalanceLabel}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void refreshAmrWalletSnapshot({ refresh: true });
+                                            }}
+                                          >
+                                            <Icon
+                                              name={!amrWalletReady && !amrCardBalanceLabel ? 'spinner' : 'refresh'}
+                                              size={13}
+                                              className={
+                                                !amrWalletReady && !amrCardBalanceLabel
+                                                  ? 'icon-spin'
+                                                  : undefined
+                                              }
+                                            />
+                                          </button>
                                         </div>
                                       ) : null}
                                       {!active && modelSummary ? (

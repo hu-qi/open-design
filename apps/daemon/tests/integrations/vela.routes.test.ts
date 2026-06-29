@@ -129,6 +129,22 @@ function seedLogin(profile: string, payload: Record<string, unknown> = {}): void
   writeFileSync(configPath(), JSON.stringify(full, null, 2), 'utf8');
 }
 
+async function setSettingsAmrEnv(extra: Record<string, string | undefined>): Promise<void> {
+  const dataDir = process.env.OD_DATA_DIR as string;
+  const cfg = await readAppConfig(dataDir);
+  const amr: Record<string, string> = {
+    ...((cfg.agentCliEnv?.amr as Record<string, string>) ?? {}),
+  };
+  for (const [key, value] of Object.entries(extra)) {
+    if (value === undefined) delete amr[key];
+    else amr[key] = value;
+  }
+  await writeAppConfig(dataDir, {
+    ...cfg,
+    agentCliEnv: { ...(cfg.agentCliEnv ?? {}), amr },
+  });
+}
+
 async function startWalletApi(
   handler: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>,
 ): Promise<{ close: () => Promise<void>; requests: string[]; url: string }> {
@@ -207,6 +223,8 @@ afterEach(() => {
   delete process.env.FAKE_VELA_BILLING_TIER;
   delete process.env.FAKE_VELA_BILLING_BALANCE_USD;
   delete process.env.FAKE_VELA_BILLING_LOG;
+  delete process.env.FAKE_VELA_BILLING_DELAY_MS;
+  delete process.env.FAKE_VELA_BILLING_UNKNOWN_COMMAND;
   delete process.env.FAKE_VELA_ENV_DUMP_PATH;
   delete process.env.OD_PUBLIC_BASE_URL;
   delete process.env.VELA_RUNTIME_KEY;
@@ -637,6 +655,68 @@ describe('GET /api/integrations/vela/status', () => {
       ? readFileSync(billingLog, 'utf8').trim().split('\n').filter(Boolean)
       : [];
     expect(attempts).toHaveLength(1);
+  });
+
+  it('keeps signed-in status usable when old vela CLI lacks billing commands', async () => {
+    clearAllVelaLiveAccounts();
+    process.env.FAKE_VELA_BILLING_UNKNOWN_COMMAND = '1';
+    seedLogin('local', {
+      user: { id: 'old-cli-1', email: 'old-cli@example.com', plan: undefined },
+    });
+
+    const { status, body } = await getJson<{
+      loggedIn: boolean;
+      user: { email?: string } | null;
+      account?: { plan?: string; balanceUsd?: string | null };
+    }>(`${baseUrl}/api/integrations/vela/status`);
+
+    expect(status).toBe(200);
+    expect(body.loggedIn).toBe(true);
+    expect(body.user?.email).toBe('old-cli@example.com');
+    expect(body.account).toBeUndefined();
+  });
+
+  it('uses the same Settings-backed credential for billing fetch and live-account cache key', async () => {
+    clearAllVelaLiveAccounts();
+    const billingLog = path.join(tmpHome, 'billing-summary-env.log');
+    process.env.FAKE_VELA_BILLING_LOG = billingLog;
+    process.env.FAKE_VELA_BILLING_DELAY_MS = '150';
+    process.env.FAKE_VELA_BILLING_TIER = 'plus';
+    process.env.FAKE_VELA_BILLING_BALANCE_USD = '8.00';
+    seedLogin('local', {
+      user: { id: 'race-1', email: 'race@example.com', plan: undefined },
+    });
+
+    try {
+      await setSettingsAmrEnv({
+        VELA_RUNTIME_KEY: 'rt-billing-account-A',
+        VELA_LINK_URL: 'http://link.invalid',
+      });
+      const pending = getJson<{
+        loggedIn: boolean;
+        account?: { plan?: string; balanceUsd?: string | null };
+      }>(`${baseUrl}/api/integrations/vela/status`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await setSettingsAmrEnv({ VELA_RUNTIME_KEY: 'rt-billing-account-B' });
+
+      const { body } = await pending;
+
+      expect(body.loggedIn).toBe(true);
+      expect(body.account?.plan).toBe('plus');
+      expect(body.account?.balanceUsd).toBe('8.00');
+      const attempts = readFileSync(billingLog, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]).toContain('rt-billing-account-A');
+      expect(attempts[0]).not.toContain('rt-billing-account-B');
+    } finally {
+      await setSettingsAmrEnv({
+        VELA_RUNTIME_KEY: undefined,
+        VELA_LINK_URL: undefined,
+      });
+    }
   });
 
   it('does not leak cached billing when the Settings-backed env credential switches accounts', async () => {

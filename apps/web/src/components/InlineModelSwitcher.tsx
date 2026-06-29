@@ -899,7 +899,8 @@ export function InlineModelSwitcher({
                           window.open(
                             attributedAmrUrl(
                               amrPlansUrlForProfile(
-                                config.agentCliEnv?.amr?.OPEN_DESIGN_AMR_PROFILE,
+                                amrStatus?.profile ??
+                                  config.agentCliEnv?.amr?.OPEN_DESIGN_AMR_PROFILE,
                               ),
                               attribution,
                               deviceId,

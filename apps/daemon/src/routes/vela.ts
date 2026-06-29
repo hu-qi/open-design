@@ -150,9 +150,7 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
     return host ? `${proto}://${host}` : 'http://localhost:7456';
   });
 
-  async function resolveAmrModelProbe(): Promise<AmrModelProbe> {
-    const appConfig = await readAppConfig(RUNTIME_DATA_DIR);
-    const configuredEnv = agentCliEnvForAgent(appConfig.agentCliEnv, 'amr');
+  function resolveAmrModelProbeForEnv(configuredEnv: Record<string, string>): AmrModelProbe {
     const def = getAgentDef('amr');
     if (!def) throw new Error('AMR runtime definition is missing');
     const agentLaunch = resolveAgentLaunch(def, configuredEnv);
@@ -184,6 +182,12 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
     return { launchPath, env: spawnEnv, configuredEnv, cacheKey };
   }
 
+  async function resolveAmrModelProbe(): Promise<AmrModelProbe> {
+    const appConfig = await readAppConfig(RUNTIME_DATA_DIR);
+    const configuredEnv = agentCliEnvForAgent(appConfig.agentCliEnv, 'amr');
+    return resolveAmrModelProbeForEnv(configuredEnv);
+  }
+
   // Single-flight the live billing fetch per credential revision. Treating
   // `peekVelaLiveAccount(key) === null` as the cold signal (rather than the
   // refresh throttle) means a concurrent second /status that arrives during the
@@ -195,11 +199,11 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
   >();
   function fetchVelaLiveAccountSingleFlight(
     accountCacheKey: string,
+    probe: AmrModelProbe,
   ): Promise<VelaLiveAccount | null> {
     const existing = inFlightVelaAccountFetches.get(accountCacheKey);
     if (existing) return existing;
     const pending = (async () => {
-      const probe = await resolveAmrModelProbe();
       amrModelLoadingCache.warm(probe.cacheKey, () =>
         fetchVelaRemoteModelsWithRetry(probe.launchPath, probe.env),
       );
@@ -248,6 +252,7 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
         const accountCacheKey = velaLiveAccountCacheKey(
           readVelaCredentialRevision(env, configuredEnv),
         );
+        const probe = resolveAmrModelProbeForEnv(configuredEnv);
         const cachedAccount = peekVelaLiveAccount(accountCacheKey);
         if (!cachedAccount) {
           // Cold cache (or a fetch already in flight): BLOCK on the single-flight
@@ -261,7 +266,7 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
           const liveAccount =
             inFlightVelaAccountFetches.has(accountCacheKey) ||
             shouldRefreshVelaLiveAccount(accountCacheKey)
-              ? await fetchVelaLiveAccountSingleFlight(accountCacheKey)
+              ? await fetchVelaLiveAccountSingleFlight(accountCacheKey, probe)
               : null;
           applyVelaLiveAccount(status, liveAccount);
         } else {
@@ -269,7 +274,7 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
           // next poll once the TTL has lapsed.
           applyVelaLiveAccount(status, cachedAccount);
           if (shouldRefreshVelaLiveAccount(accountCacheKey)) {
-            void fetchVelaLiveAccountSingleFlight(accountCacheKey).catch(() => {});
+            void fetchVelaLiveAccountSingleFlight(accountCacheKey, probe).catch(() => {});
           }
         }
       }

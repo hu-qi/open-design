@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
+import type { AmrWalletSnapshot } from '@open-design/contracts';
 import { getResolvedDeviceId } from '../analytics/client';
 import { amrHandoffDeviceId, attributedAmrUrl, recordAmrEntry } from '../analytics/amr-attribution';
 import { useAnalytics } from '../analytics/provider';
@@ -16,6 +17,7 @@ import { apiProtocolLabel } from '../utils/apiProtocol';
 import { fetchProviderModels } from '../providers/provider-models';
 import {
   canUpgradeVelaPlan,
+  fetchAmrWalletSnapshot,
   fetchVelaLoginStatus,
   formatVelaBalanceUsd,
   type VelaLoginStatus,
@@ -181,19 +183,31 @@ export function AvatarMenu({
   // whenever the Open Design runtime is installed — so the Open Design agent row
   // can show the real plan/balance even when another agent is currently active.
   const [amrAccount, setAmrAccount] = useState<VelaLoginStatus | null>(null);
+  const [amrWalletSnapshot, setAmrWalletSnapshot] =
+    useState<AmrWalletSnapshot | null>(null);
   useEffect(() => {
     if (!open || !amrAvailable) {
       setAmrAccount(null);
+      setAmrWalletSnapshot(null);
       return;
     }
     let cancelled = false;
     setAmrAccount(null);
+    setAmrWalletSnapshot(null);
     void fetchVelaLoginStatus()
-      .then((status) => {
-        if (!cancelled) setAmrAccount(status);
+      .then(async (status) => {
+        if (cancelled) return;
+        setAmrAccount(status);
+        if (status?.loggedIn && !formatVelaBalanceUsd(status.account?.balanceUsd)) {
+          const wallet = await fetchAmrWalletSnapshot();
+          if (!cancelled) setAmrWalletSnapshot(wallet);
+        }
       })
       .catch(() => {
-        if (!cancelled) setAmrAccount(null);
+        if (!cancelled) {
+          setAmrAccount(null);
+          setAmrWalletSnapshot(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -206,12 +220,16 @@ export function AvatarMenu({
     ? amrPlanTrimmed.charAt(0).toUpperCase() + amrPlanTrimmed.slice(1)
     : null;
   const amrBalanceLabel = amrAccount?.loggedIn
-    ? formatVelaBalanceUsd(amrAccount.account?.balanceUsd)
+    ? formatVelaBalanceUsd(amrAccount.account?.balanceUsd) ??
+      (amrWalletSnapshot?.status === 'available'
+        ? formatVelaBalanceUsd(amrWalletSnapshot.balanceUsd)
+        : null)
     : null;
-  const amrConsoleUrl = amrConsoleUrlForProfile(amrProfile);
+  const amrResolvedProfile = amrAccount?.profile ?? amrProfile;
+  const amrConsoleUrl = amrConsoleUrlForProfile(amrResolvedProfile);
   const amrCanUpgrade =
     !!amrAccount?.loggedIn && canUpgradeVelaPlan(amrAccount.account?.plan);
-  const amrPlansUrl = amrPlansUrlForProfile(amrProfile);
+  const amrPlansUrl = amrPlansUrlForProfile(amrResolvedProfile);
   const handleAmrConsoleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     const attribution = recordAmrEntry(analytics.track, 'avatar_amr_console', new Date(), {
       metricsConsent: config.telemetry?.metrics === true,
