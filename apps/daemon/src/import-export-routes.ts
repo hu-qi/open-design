@@ -419,6 +419,10 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
     sanitizeArchiveFilename,
   } = ctx.exports;
 
+  function isNoSlideDeckRenderError(rendered: { ok: boolean; error?: string }): boolean {
+    return !rendered.ok && typeof rendered.error === 'string' && /no slide surfaces found/i.test(rendered.error);
+  }
+
   // Shared screenshot-export flow: render the deck to one PNG per slide via the
   // desktop's Electron Chromium, then assemble the requested binary. Both the
   // .pptx and raster-.pdf routes funnel through here. Like the PDF route, it
@@ -513,6 +517,15 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
         );
       }
       const tRendered = Date.now();
+
+      if (format === 'pptx' && isNoSlideDeckRenderError(rendered)) {
+        return sendApiError(
+          res,
+          422,
+          'BAD_REQUEST',
+          'this artifact is not a slide deck — export it as PDF or an image instead',
+        );
+      }
 
       // Editable PPTX: the renderer wrote a finished .pptx (native shapes/text)
       // to the scratch dir. Stream it directly — no image assembly. Confine the
@@ -866,8 +879,9 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
     await handleScreenshotExport(res, format, req.params.id, {
       fileName,
       // pptx is deck-only (handleScreenshotExport forces it); pdf/image honor the
-      // caller's deck flag.
-      deck: deck === true,
+      // caller's deck flag when one is supplied. Omitted stays omitted so the
+      // renderer can auto-detect deck artifacts.
+      ...(typeof deck === 'boolean' ? { deck } : {}),
       ...(typeof imageFormat === 'string' ? { imageFormat } : {}),
       ...(typeof title === 'string' ? { title } : {}),
     });

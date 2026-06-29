@@ -87,6 +87,7 @@ describe('screenshot export desktop renderer file handoff', () => {
     const dir = path.join(dataDir, 'projects', projectId);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'index.html'), '<html><body><section class="slide">A</section></body></html>');
+    await writeFile(path.join(dir, 'page.html'), '<html><body><main>Ordinary page</main></body></html>');
   });
 
   afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
@@ -155,6 +156,18 @@ describe('screenshot export desktop renderer file handoff', () => {
     expect(seenDirs.length).toBe(before + 1);
   });
 
+  it('leaves omitted generic export deck signals undefined for renderer auto-detection', async () => {
+    const before = seenInputs.length;
+    const res = await fetch(`${baseUrl}/api/projects/${projectId}/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: 'index.html', format: 'image' }),
+    });
+    expect(res.status).toBe(200);
+    expect(seenInputs.length).toBe(before + 1);
+    expect(seenInputs.at(-1)?.deck).toBeUndefined();
+  });
+
   it('routes generic POST /export pdf through the raster screenshot renderer, not the vector path', async () => {
     // Regression: the generic /export route used to render `format: pdf` with the
     // vector printToPDF path (desktopArtifactExporter), which drops CJK glyphs in
@@ -189,6 +202,31 @@ describe('screenshot export desktop renderer file handoff', () => {
     expect(seenInputs.length).toBe(before + 1);
     const bytes = Buffer.from(await res.arrayBuffer());
     expect(bytes.equals(PPTX)).toBe(true);
+  });
+
+  it('returns 422 when PPTX export is requested for a non-deck page', async () => {
+    const noSlideRenderer = async (): Promise<DesktopRenderSlidesResult> => ({
+      ok: false,
+      error: 'no slide surfaces found in this deck',
+    });
+    const srv = (await startServer({
+      port: 0,
+      returnServer: true,
+      desktopSlideRenderer: noSlideRenderer,
+    })) as { url: string; server: http.Server };
+    try {
+      const res = await fetch(`${srv.url}/api/projects/${projectId}/export/pptx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: 'page.html' }),
+      });
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error?: { code?: string; message?: string } };
+      expect(body.error?.code).toBe('BAD_REQUEST');
+      expect(body.error?.message).toContain('not a slide deck');
+    } finally {
+      await new Promise<void>((resolve) => srv.server.close(() => resolve()));
+    }
   });
 
   it('rejects unsupported image export formats before rendering', async () => {
