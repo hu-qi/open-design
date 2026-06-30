@@ -23,7 +23,7 @@ export { CSS_VAR_PREFIX, cssVar, varRef, formatTokenValue, flattenTokens } from 
 export { generate, presets } from "./palette.js";
 
 // ── seed synthesis ──
-export { defaultSeed, seedFromBrand, seedFromMaterial, isDarkNativeBrand, isDarkNativeMaterial } from "./seed.js";
+export { defaultSeed, seedFromBrand, seedFromMaterial, isDarkNativeBrand } from "./seed.js";
 
 // ── derive: Seed → full DesignTokens for an algorithm ──
 export { deriveTokens } from "./derive.js";

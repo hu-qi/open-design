@@ -25,7 +25,7 @@ import { patchMeta } from '../src/brands/store.js';
 import { ensureLogoFallback } from '../src/brands/logo-fallback.js';
 import { brandFromMaterial } from '../src/brands/provisional.js';
 import { listDesignSystems } from '../src/design-systems/index.js';
-import { buildBrandSystem, deriveTokens, seedFromMaterial, isDarkNativeMaterial } from '../src/brands/engine/index.js';
+import { buildBrandSystem, deriveTokens, seedFromMaterial } from '../src/brands/engine/index.js';
 import {
   adoptExistingImagery,
   findImageRefs,
@@ -273,85 +273,6 @@ describe('agent-driven brand extraction engine', () => {
     const system = buildBrandSystem(VALID_BRAND);
     expect(system.files['artifacts/landing.html']).not.toContain('--brand-color-bg-container: #141414;');
     expect(system.files['index.html']).not.toContain('--brand-color-bg-container: #141414;');
-  });
-
-  it('detects dark-native from background evidence, not raw frequency', () => {
-    // The URL path can't recover the canvas from the reconstructed brand (the
-    // seed clamps it to white), so dark-native is read from the prefetch's
-    // background-declaration evidence — NOT the most-frequent color, since
-    // material.colors folds in heavily-weighted logo SVG fills.
-    const darkSite = {
-      colors: [
-        { hex: '#000000', count: 200, sources: ['prop:background selector:body'] },
-        { hex: '#ffffff', count: 40, sources: ['prop:color'] },
-        { hex: '#0070f3', count: 12, sources: ['css-var:--accent'] },
-      ],
-    } as unknown as PrefetchResult;
-    const lightSite = {
-      colors: [
-        { hex: '#ffffff', count: 220, sources: ['prop:background selector:body'] },
-        { hex: '#111111', count: 28, sources: ['prop:color'] },
-        { hex: '#006fff', count: 12, sources: ['css-var:--accent'] },
-      ],
-    } as unknown as PrefetchResult;
-    // Regression: a light canvas with a dominant black wordmark. The logo's
-    // #000000 outranks the white background by raw count (logo fills are
-    // weighted ×18 in prefetch), but it is not background evidence.
-    const lightWithDarkLogo = {
-      colors: [
-        { hex: '#000000', count: 360, sources: ['logo-svg:mark.svg'] },
-        { hex: '#ffffff', count: 120, sources: ['prop:background-color selector:html'] },
-        { hex: '#111111', count: 90, sources: ['prop:color'] },
-      ],
-    } as unknown as PrefetchResult;
-
-    // Regression: a dark decorative `background-image`/gradient is not the page
-    // canvas. `prop:background-image` must not be accepted as canvas evidence.
-    const lightWithDarkHero = {
-      colors: [
-        { hex: '#0a0a0a', count: 200, sources: ['prop:background-image selector:body'] },
-        { hex: '#ffffff', count: 60, sources: ['prop:background-color selector:html'] },
-        { hex: '#111111', count: 40, sources: ['prop:color'] },
-      ],
-    } as unknown as PrefetchResult;
-    // And when a dark hero image is the *only* background-ish evidence, there is
-    // no real canvas measurement — don't guess a dark canvas.
-    const onlyDarkHero = {
-      colors: [
-        { hex: '#0a0a0a', count: 200, sources: ['prop:background-image selector:body'] },
-        { hex: '#111111', count: 40, sources: ['prop:color'] },
-      ],
-    } as unknown as PrefetchResult;
-
-    // Regression: a dark component background on a `.body-copy-card` class must
-    // not get the root boost just because the class name contains "body" — the
-    // real light `selector:html` canvas should win.
-    const lightWithDarkCard = {
-      colors: [
-        { hex: '#1a1a1a', count: 300, sources: ['prop:background selector:.body-copy-card'] },
-        { hex: '#ffffff', count: 80, sources: ['prop:background selector:html'] },
-        { hex: '#111111', count: 40, sources: ['prop:color'] },
-      ],
-    } as unknown as PrefetchResult;
-
-    // Regression: modern reset/framework CSS declares the canvas on a functional
-    // root selector like `:where(body)` / `:is(html)`. It must still count as the
-    // page canvas even when a louder component rule has a higher count.
-    const darkViaWhereBody = {
-      colors: [
-        { hex: '#ffffff', count: 300, sources: ['prop:background selector:.card'] },
-        { hex: '#000000', count: 80, sources: ['prop:background selector::where(body)'] },
-        { hex: '#ffffff', count: 40, sources: ['prop:color'] },
-      ],
-    } as unknown as PrefetchResult;
-
-    expect(isDarkNativeMaterial(darkSite)).toBe(true);
-    expect(isDarkNativeMaterial(lightSite)).toBe(false);
-    expect(isDarkNativeMaterial(lightWithDarkLogo)).toBe(false);
-    expect(isDarkNativeMaterial(lightWithDarkHero)).toBe(false);
-    expect(isDarkNativeMaterial(onlyDarkHero)).toBe(false);
-    expect(isDarkNativeMaterial(lightWithDarkCard)).toBe(false);
-    expect(isDarkNativeMaterial(darkViaWhereBody)).toBe(true);
   });
 
   beforeEach(() => {
