@@ -1915,6 +1915,7 @@ export const zhCN: Dict = {
   "designBrowser.goBack": "后退",
   "designBrowser.goForward": "前进",
   "designBrowser.reload": "重新加载",
+  "designBrowser.stopLoading": "停止加载",
   "designBrowser.viewportAria": "浏览器视口",
   "designBrowser.addressPlaceholder": "输入 URL 或搜索...",
   "designBrowser.addressAria": "浏览器地址",

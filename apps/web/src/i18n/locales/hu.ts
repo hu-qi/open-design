@@ -1780,6 +1780,8 @@ export const hu: Dict = {
   'designBrowser.goBack': 'Go Back',
   'designBrowser.goForward': 'Go Forward',
   'designBrowser.reload': 'Reload',
+
+  'designBrowser.stopLoading': 'Betöltés leállítása',
   'designBrowser.viewportAria': 'Browser viewport',
   'designBrowser.addressPlaceholder': 'Enter URL or search...',
   'designBrowser.addressAria': 'Browser address',

@@ -20,7 +20,9 @@ export async function ensureRailOpen(page: Page): Promise<void> {
 export async function openNewProjectModal(page: Page): Promise<void> {
   if (await page.getByTestId('new-project-panel').isVisible().catch(() => false)) return;
   await ensureRailOpen(page);
-  await page.getByTestId('entry-nav-projects').click();
+  const projectsNav = page.getByTestId('entry-nav-projects');
+  await expect(projectsNav).toBeVisible();
+  await projectsNav.evaluate((element: HTMLElement) => element.click());
   const projectsView = page.getByTestId('entry-view-projects');
   await expect(projectsView).toBeVisible();
   const toolbarButton = projectsView.getByTestId('designs-new-project');

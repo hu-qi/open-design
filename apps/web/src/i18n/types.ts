@@ -2527,6 +2527,7 @@ export interface Dict {
   'designBrowser.goBack': string;
   'designBrowser.goForward': string;
   'designBrowser.reload': string;
+  'designBrowser.stopLoading': string;
   'designBrowser.viewportAria': string;
   'designBrowser.addressPlaceholder': string;
   'designBrowser.addressAria': string;

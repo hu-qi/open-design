@@ -2168,7 +2168,7 @@ export function DesignBrowserPanel({
             <Icon name="chevron-right" size={16} />
           </IconTooltipButton>
           <IconTooltipButton
-            label={isLoading ? t('common.cancel') : t('designBrowser.reload')}
+            label={isLoading ? t('designBrowser.stopLoading') : t('designBrowser.reload')}
             className={isLoading ? 'is-spinning' : ''}
             disabled={isBlank}
             onClick={() => (isLoading ? stopLoading() : reload(false))}
