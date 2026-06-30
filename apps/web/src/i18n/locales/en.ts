@@ -2232,6 +2232,7 @@ export const en: Dict = {
   'fileViewer.markdownViewMode': "Markdown view mode",
   'fileViewer.split': "Split",
   'fileViewer.markdownEditor': "Markdown editor",
+  'fileViewer.markdownEditorPlaceholder': "Type notes, requirements, or instructions for this document...",
   'fileViewer.markdownPreview': "Markdown preview",
   'fileViewer.videoMeta': 'Video · {size}',
   'fileViewer.audioMeta': 'Audio · {size}',

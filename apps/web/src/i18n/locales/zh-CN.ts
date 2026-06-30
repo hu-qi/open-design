@@ -2232,6 +2232,7 @@ export const zhCN: Dict = {
   'fileViewer.markdownViewMode': "Markdown 视图模式",
   'fileViewer.split': "分栏",
   'fileViewer.markdownEditor': "Markdown 编辑器",
+  'fileViewer.markdownEditorPlaceholder': "输入这份文档的笔记、需求或说明...",
   'fileViewer.markdownPreview': "Markdown 预览",
   'fileViewer.videoMeta': '视频 · {size}',
   'fileViewer.audioMeta': '音频 · {size}',

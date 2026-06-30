@@ -143,7 +143,7 @@ describe('DesignFilesPanel sections', () => {
     expect(onNewSketch).toHaveBeenCalledTimes(1);
     expect(onOpenBrowser).toHaveBeenCalledTimes(1);
     expect(onPaste).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Create document' })).toBeTruthy();
+    expect(screen.getByTestId('design-files-empty-create-document').textContent).toContain('Create document');
     expect(screen.queryByRole('button', { name: 'Create new design system' })).toBeNull();
   });
 

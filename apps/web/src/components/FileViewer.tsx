@@ -10991,7 +10991,6 @@ function MarkdownViewer({
 }) {
   const { t, locale } = useI18n();
   const [text, setText] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [copied, setCopied] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [mode, setMode] = useState<MarkdownViewerMode>('split');
@@ -11018,7 +11017,6 @@ function MarkdownViewer({
   const textRef = useRef('');
   const lastSavedTextRef = useRef<string | null>(null);
   const loadedFileKeyRef = useRef<string | null>(null);
-  const loadedReloadKeyRef = useRef(0);
   const markdownFileKey = `${projectId}::${file.name}`;
   const status = file.artifactManifest?.status ?? 'complete';
   const isStreaming = status === 'streaming';
@@ -11027,10 +11025,8 @@ function MarkdownViewer({
 
   useEffect(() => {
     const sameLoadedFile = loadedFileKeyRef.current === markdownFileKey;
-    const forceReload = loadedReloadKeyRef.current !== reloadKey;
     if (
       sameLoadedFile &&
-      !forceReload &&
       lastSavedTextRef.current !== null &&
       textRef.current !== lastSavedTextRef.current
     ) {
@@ -11047,7 +11043,6 @@ function MarkdownViewer({
       if (cancelled) return;
       if (
         loadedFileKeyRef.current === markdownFileKey &&
-        !forceReload &&
         lastSavedTextRef.current !== null &&
         textRef.current !== lastSavedTextRef.current
       ) {
@@ -11056,13 +11051,11 @@ function MarkdownViewer({
       const loaded = next ?? '';
       if (
         sameLoadedFile &&
-        !forceReload &&
         lastSavedTextRef.current !== null &&
         textRef.current === lastSavedTextRef.current &&
         loaded === lastSavedTextRef.current
       ) {
         loadedFileKeyRef.current = markdownFileKey;
-        loadedReloadKeyRef.current = reloadKey;
         pendingSaveAfterFlightRef.current = null;
         setSaveState((current) => current === 'saved' ? current : 'idle');
         return;
@@ -11070,7 +11063,6 @@ function MarkdownViewer({
       textRef.current = loaded;
       lastSavedTextRef.current = loaded;
       loadedFileKeyRef.current = markdownFileKey;
-      loadedReloadKeyRef.current = reloadKey;
       pendingSaveAfterFlightRef.current = null;
       setSaveState('idle');
       setText(loaded);
@@ -11078,7 +11070,7 @@ function MarkdownViewer({
     return () => {
       cancelled = true;
     };
-  }, [projectId, file.name, file.mtime, markdownFileKey, reloadKey]);
+  }, [projectId, file.name, file.mtime, markdownFileKey]);
 
   useEffect(() => {
     return () => {
@@ -11531,15 +11523,6 @@ function MarkdownViewer({
           </div>
         </div>
         <div className="viewer-toolbar-actions">
-          <button
-            type="button"
-            className="viewer-action"
-            onClick={() => setReloadKey((n) => n + 1)}
-            title={t('fileViewer.reloadDisk')}
-          >
-            <Icon name="reload" size={13} />
-            <span>{t('fileViewer.reload')}</span>
-          </button>
           {autoSaveStatus === 'error' ? (
             <button
               type="button"

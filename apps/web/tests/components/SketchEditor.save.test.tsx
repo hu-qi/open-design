@@ -267,6 +267,9 @@ describe('SketchEditor save', () => {
     document.body.appendChild(portal);
 
     await waitFor(() => expect(portal.classList.contains('od-sketch-modal')).toBe(true));
+    expect(insert.querySelector('kbd')).toBeNull();
+    expect(insert.textContent).not.toContain('Cmd');
+    expect(insert.textContent).not.toContain('Enter');
 
     const enter = new KeyboardEvent('keydown', {
       key: 'Enter',

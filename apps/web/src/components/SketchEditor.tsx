@@ -1004,6 +1004,7 @@ function enhanceSketchExcalidrawPortals(locale: Locale, onClose: () => void): vo
     portal.classList.toggle('od-sketch-help-modal', Boolean(portal.querySelector('.HelpDialog__header')));
     applySketchDomI18nOverrides(portal, locale);
     for (const content of Array.from(portal.querySelectorAll<HTMLElement>('.Modal__content'))) {
+      removeSketchMermaidShortcutHints(content);
       let close = content.querySelector<HTMLButtonElement>(':scope > .od-sketch-dialog-close');
       if (!close) {
         close = document.createElement('button');
@@ -1020,6 +1021,14 @@ function enhanceSketchExcalidrawPortals(locale: Locale, onClose: () => void): vo
       close.setAttribute('aria-label', label);
       close.setAttribute('title', label);
     }
+  }
+}
+
+function removeSketchMermaidShortcutHints(content: HTMLElement): void {
+  const insertButton = findSketchMermaidInsertButton(content);
+  if (!insertButton) return;
+  for (const hint of Array.from(insertButton.querySelectorAll('kbd'))) {
+    hint.remove();
   }
 }
 
