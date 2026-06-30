@@ -323,11 +323,23 @@ describe('agent-driven brand extraction engine', () => {
       ],
     } as unknown as PrefetchResult;
 
+    // Regression: a dark component background on a `.body-copy-card` class must
+    // not get the root boost just because the class name contains "body" — the
+    // real light `selector:html` canvas should win.
+    const lightWithDarkCard = {
+      colors: [
+        { hex: '#1a1a1a', count: 300, sources: ['prop:background selector:.body-copy-card'] },
+        { hex: '#ffffff', count: 80, sources: ['prop:background selector:html'] },
+        { hex: '#111111', count: 40, sources: ['prop:color'] },
+      ],
+    } as unknown as PrefetchResult;
+
     expect(isDarkNativeMaterial(darkSite)).toBe(true);
     expect(isDarkNativeMaterial(lightSite)).toBe(false);
     expect(isDarkNativeMaterial(lightWithDarkLogo)).toBe(false);
     expect(isDarkNativeMaterial(lightWithDarkHero)).toBe(false);
     expect(isDarkNativeMaterial(onlyDarkHero)).toBe(false);
+    expect(isDarkNativeMaterial(lightWithDarkCard)).toBe(false);
   });
 
   beforeEach(() => {

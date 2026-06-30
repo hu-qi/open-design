@@ -276,6 +276,23 @@ export function isDarkNativeBrand(brand: Brand): boolean {
  * root/body selectors) and compare it against the `color` (text) evidence, the
  * same light-text-on-dark test `isDarkNativeBrand` uses.
  */
+/**
+ * True when a `selector:` tail actually targets the page root — an `html` /
+ * `body` element type or the `:root` pseudo-class — as opposed to merely
+ * containing those letters (`.body-copy-card`, `#body`, `[data-body]`). Splits
+ * the selector list into compound selectors and inspects each one's element
+ * type so a dark component background can't masquerade as the page canvas.
+ */
+function selectorTargetsRoot(selectorText: string): boolean {
+  for (const compound of selectorText.split(/[\s,>+~]+/)) {
+    if (!compound) continue;
+    if (/(?:^|[^\w-]):root(?![\w-])/i.test(compound)) return true;
+    const type = /^[a-z][\w-]*/i.exec(compound)?.[0]?.toLowerCase();
+    if (type === "html" || type === "body") return true;
+  }
+  return false;
+}
+
 function pickByEvidence(material: PrefetchResult, props: Set<string>): string | null {
   let hex: string | null = null;
   let bestScore = -Infinity;
@@ -291,8 +308,8 @@ function pickByEvidence(material: PrefetchResult, props: Set<string>): string | 
       // `-clip` (decorative backgrounds are not the page canvas).
       const token = s.trim().split(/\s+/, 1)[0] ?? "";
       if (props.has(token)) isMatch = true;
-      const sl = s.toLowerCase();
-      if (sl.includes("selector:") && (sl.includes(":root") || /\b(?:html|body)\b/.test(sl))) {
+      const selIdx = s.indexOf("selector:");
+      if (selIdx >= 0 && selectorTargetsRoot(s.slice(selIdx + "selector:".length))) {
         rootish = true;
       }
     }
