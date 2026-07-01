@@ -51,22 +51,6 @@
 }
 
 /* Seats and team-plan summary (demo billing control). */
-.members__toast {
-  align-self: flex-start;
-  padding: 9px 16px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, #10b981 14%, var(--bg-panel));
-  border: 1px solid color-mix(in srgb, #10b981 32%, transparent);
-  color: #047857;
-  font-size: 13px;
-  font-weight: 600;
-  animation: members-toast-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-@keyframes members-toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 .members__seats {
   display: flex;
   flex-direction: column;

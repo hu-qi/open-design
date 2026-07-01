@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { Icon } from './Icon';
+import { Toast } from './Toast';
 import { InviteDialog } from './InviteDialog';
 import { UpgradeTeamDialog } from './UpgradeTeamDialog';
 import { Confetti } from './Confetti';
@@ -99,12 +100,10 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
   function sendInvites(rows: PendingInvite[]) {
     setPendingInvites((prev) => [...prev, ...rows]);
     setToast(`已向 ${rows.length} 位同事发送邀请邮件`);
-    window.setTimeout(() => setToast(null), 3200);
   }
 
   function resendInvite(email: string) {
     setToast(`已重新发送邀请邮件给 ${email}`);
-    window.setTimeout(() => setToast(null), 3200);
     setResentEmails((prev) => new Set(prev).add(email));
     window.setTimeout(() => {
       setResentEmails((prev) => {
@@ -123,7 +122,6 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
       return next;
     });
     setToast(`已将 ${member.name} 移出 Workspace`);
-    window.setTimeout(() => setToast(null), 3200);
   }
 
   function adjustTeamSeats(delta: number) {
@@ -150,7 +148,6 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
       setQueuedInvites([]);
     } else {
       setToast(`已升级到 ${config?.tierName ?? teamTier.name}`);
-      window.setTimeout(() => setToast(null), 3200);
     }
   }
 
@@ -170,7 +167,9 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
         </button>
       </header>
 
-      {toast ? <div className="members__toast">{toast}</div> : null}
+      {toast ? (
+        <Toast message={toast} tone="success" ttlMs={3200} onDismiss={() => setToast(null)} />
+      ) : null}
 
       <div className="members__seats">
         <div className="members__seats-main">
