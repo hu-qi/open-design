@@ -68,10 +68,22 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_SHORT = 200;
 const MAX_MESSAGE = 4000;
-const ALLOWED_SOURCES = new Set(["enterprise", "client"]);
-// The /enterprise page still submits these budget enum codes; the pricing
-// modal submits free display strings. The card maps a known code to a label
-// and otherwise shows the raw value.
+// `enterprise` = the /enterprise page (full lead form, strict contract).
+// `pricing_team` = the lightweight /pricing "Request Team" modal (name + email
+// required, everything else optional). `client` = in-app.
+const ALLOWED_SOURCES = new Set(["enterprise", "pricing_team", "client"]);
+const ALLOWED_TEAM_SIZES = new Set(["1-10", "11-50", "51-200", "200+"]);
+const ALLOWED_BUDGETS = new Set([
+  "lt_50",
+  "usd_50_200",
+  "usd_200_1k",
+  "usd_1k_5k",
+  "usd_5k_plus",
+  "unsure",
+]);
+// The /enterprise page submits these budget enum codes; the pricing modal
+// submits free display strings. The card maps a known code to a label and
+// otherwise shows the raw value.
 const BUDGET_LABELS: Record<string, string> = {
   lt_50: "每月 $50 以下",
   usd_50_200: "每月 $50 – $200",
@@ -305,19 +317,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return json({ ok: false, error: "missing_fields" }, 400, origin);
   }
 
-  // Everything past name + email is optional — the pricing "Request Team" modal
-  // only requires those two. Team size and budget arrive as free display
-  // strings from that surface, so they are stored as-is rather than matched
-  // against the enterprise-page enums.
+  const source =
+    typeof payload.source === "string" && ALLOWED_SOURCES.has(payload.source)
+      ? payload.source
+      : "unknown";
+
   const company = readString(payload.company, MAX_SHORT);
   const teamSize = readString(payload.teamSize, MAX_SHORT);
   const budget = readString(payload.budget, MAX_SHORT);
   const useCases = readUseCases(payload.useCases);
 
-  const source =
-    typeof payload.source === "string" && ALLOWED_SOURCES.has(payload.source)
-      ? payload.source
-      : "unknown";
+  // The /enterprise form keeps its full contract (company + a known team-size
+  // and budget enum + at least one use case). The lightweight pricing "Request
+  // Team" modal (source 'pricing_team') only needs name + email; its team size
+  // and budget arrive as free display strings and are stored as-is.
+  if (
+    source === "enterprise" &&
+    (!company ||
+      !ALLOWED_TEAM_SIZES.has(teamSize) ||
+      !ALLOWED_BUDGETS.has(budget) ||
+      useCases.length === 0)
+  ) {
+    return json({ ok: false, error: "missing_fields" }, 400, origin);
+  }
 
   const cf = request.cf || {};
   const lead: ContactLead = {

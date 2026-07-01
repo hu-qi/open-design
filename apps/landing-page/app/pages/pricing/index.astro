@@ -550,6 +550,12 @@ const jsonLd = [
 
         const openModal = () => {
           lastFocus = document.activeElement;
+          // Restore a clean form on every open so a prior success/error panel
+          // doesn't strand the modal (a second lead can be submitted freely).
+          if (form) { form.reset(); form.hidden = false; }
+          if (successEl) successEl.hidden = true;
+          if (errorEl) errorEl.hidden = true;
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = leadForm.submit; }
           modal.hidden = false;
           modal.setAttribute('aria-hidden', 'false');
           document.body.style.overflow = 'hidden';
@@ -604,7 +610,7 @@ const jsonLd = [
               seats: val('seats'),
               budget: (data.get('budget') || '').toString(),
               message: val('message'),
-              source: 'enterprise',
+              source: 'pricing_team',
               locale: document.documentElement.lang || 'en',
               pageUrl: location.href,
             };
