@@ -52,6 +52,11 @@ interface Props {
   canAssignInviteRoles?: boolean;
   /** Owner / Manager-only collection actions: invite, bulk delete, and team-space moves. */
   canManageProjectCollection?: boolean;
+  /** Opt-in demo seeding. When true the strip pads a short project list with
+   *  synthesized `demo-*` cards so the review demo has a full grid. Off by
+   *  default so the real Home/Drafts/All surfaces (and tests) render only the
+   *  daemon-backed projects and never act on phantom rows. */
+  seedDemoContent?: boolean;
 }
 
 type BrowseTab = 'projects' | 'design-systems' | 'templates';
@@ -203,6 +208,7 @@ export function RecentProjectsStrip({
   collaborationEnabled = true,
   canAssignInviteRoles = true,
   canManageProjectCollection = true,
+  seedDemoContent = false,
 }: Props) {
   const t = useT();
   const [view, setView] = useState<'grid' | 'list'>('grid');
@@ -229,8 +235,10 @@ export function RecentProjectsStrip({
     [projects],
   );
   const displayProjects = useMemo(
-    () => withDemoProjects(sorted, space, Math.min(limit, DEMO_PROJECT_TARGET_COUNT)),
-    [limit, sorted, space],
+    () => (seedDemoContent
+      ? withDemoProjects(sorted, space, Math.min(limit, DEMO_PROJECT_TARGET_COUNT))
+      : sorted),
+    [limit, sorted, space, seedDemoContent],
   );
   const visibleProjectCards = useMemo(
     () => displayProjects
@@ -429,21 +437,42 @@ export function RecentProjectsStrip({
     setSelectedProjectIds(new Set());
   }
 
-  async function batchDeleteSelected() {
-    if (selectedProjectIds.size === 0) return;
-    const ids = [...selectedProjectIds];
+  function markLocallyDeleted(ids: string[]) {
+    if (ids.length === 0) return;
     setLocallyDeletedIds((current) => {
       const next = new Set(current);
       ids.forEach((id) => next.add(id));
       return next;
     });
+  }
+
+  async function batchDeleteSelected() {
+    if (selectedProjectIds.size === 0) return;
+    const ids = [...selectedProjectIds];
     exitSelectionMode();
-    if (!onDelete) return;
-    await Promise.all(
-      ids
-        .filter((id) => !id.startsWith('demo-'))
-        .map((id) => Promise.resolve(onDelete(id))),
+
+    // Demo-only rows have no backend to fail; drop them locally right away.
+    const demoIds = ids.filter((id) => id.startsWith('demo-'));
+    const realIds = ids.filter((id) => !id.startsWith('demo-'));
+    markLocallyDeleted(demoIds);
+
+    if (!onDelete || realIds.length === 0) return;
+
+    // Only hide a real project once its backend delete actually succeeds.
+    // `onDelete` returns `false` (or rejects) on failure — a card removed
+    // before that resolves would vanish locally while the project still
+    // exists on disk and reappears on the next refresh. Wait for each result
+    // and leave failed ids in place.
+    const results = await Promise.all(
+      realIds.map(async (id) => {
+        try {
+          return (await onDelete(id)) !== false;
+        } catch {
+          return false;
+        }
+      }),
     );
+    markLocallyDeleted(realIds.filter((_, index) => results[index]));
   }
 
   function batchMoveSelected(action: 'to-team' | 'to-personal') {

@@ -2319,6 +2319,7 @@ export function HomeView({
         limit={1000}
         heading="最近项目"
         space="recent"
+        seedDemoContent
         collaborationEnabled={demoUseMode === 'cloud'}
         {...(projectsLoading !== undefined ? { loading: projectsLoading } : {})}
         onOpen={(id) => {

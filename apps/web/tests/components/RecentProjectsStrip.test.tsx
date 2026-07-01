@@ -105,6 +105,44 @@ describe('RecentProjectsStrip', () => {
     expect(container.querySelectorAll('.recent-projects__card')).toHaveLength(6);
   });
 
+  it('renders only the real projects by default and pads only when demo-seeded', () => {
+    const { container, rerender } = render(
+      <RecentProjectsStrip projects={projects(2)} onOpen={() => {}} onViewAll={() => {}} />,
+    );
+    // No demo seeding: exactly the two daemon-backed projects, no phantom rows
+    // that rename/delete/open could act on.
+    expect(container.querySelectorAll('.recent-projects__card')).toHaveLength(2);
+    expect(container.querySelector('[data-project-id^="demo-"]')).toBeNull();
+
+    rerender(
+      <RecentProjectsStrip projects={projects(2)} seedDemoContent onOpen={() => {}} onViewAll={() => {}} />,
+    );
+    // Demo seeding pads the short list up to the limit for a full review grid.
+    expect(container.querySelectorAll('.recent-projects__card').length).toBeGreaterThan(2);
+  });
+
+  it('keeps a project card when its bulk delete fails', async () => {
+    // Backend delete returned false → the project still exists on disk, so the
+    // card must NOT be optimistically removed (it would otherwise reappear on
+    // the next refresh and read as data loss).
+    const onDelete = vi.fn(async () => false);
+    render(
+      <RecentProjectsStrip
+        projects={projects(2)}
+        space="drafts"
+        onOpen={() => {}}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '多选' }));
+    fireEvent.click(screen.getByLabelText('选择 Project 1'));
+    fireEvent.click(screen.getByRole('button', { name: /批量删除/ }));
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith('project-1'));
+    expect(screen.getByText('Project 1')).toBeTruthy();
+  });
+
   it('remeasures when projects arrive after the initial empty render', () => {
     Object.defineProperty(window, 'innerWidth', {
       configurable: true,

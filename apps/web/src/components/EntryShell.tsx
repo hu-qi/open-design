@@ -119,6 +119,7 @@ import {
 } from './EntrySettingsMenu';
 import { NewProjectModal } from './NewProjectModal';
 import { PluginMarketplaceDemo } from './PluginMarketplaceDemo';
+import { IntegrationsView } from './IntegrationsView';
 import { CommunityView } from './CommunityView';
 import { resolveCommunityTemplatePreset } from './community-template-presets';
 import { ContentPlanView } from './ContentPlanView';
@@ -718,7 +719,7 @@ export function EntryShell({
 
   function openIntegrationTab(tab: IntegrationTab) {
     setIntegrationTab(tab);
-    changeView('plugins');
+    changeView('integrations');
   }
 
   function openNewProject(tab: CreateTab = 'prototype') {
@@ -1082,11 +1083,15 @@ export function EntryShell({
         open={inviteFlowOpen}
         role={inviteRole}
         onClose={() => setInviteFlowOpen(false)}
-        onJoined={() => {
-          // 开始协作 → land in the team workspace home as the invited member.
+        onJoined={(joinedScenario) => {
+          // 开始协作 → land in the team workspace home *as the invited role*.
+          // The flow hands back the role-specific scenario (invite-editor /
+          // invite-admin / invite-viewer); carry it into demoScenario so the
+          // workspace reflects the invited member's permissions instead of the
+          // default owner-like home.
           setInviteFlowOpen(false);
           setDemoPlan('team');
-          setDemoScenario('home');
+          setDemoScenario(joinedScenario);
           navigate({ kind: 'home', view: 'home' });
           fireCelebration('已加入 Nexu 设计团队，开始协作');
         }}
@@ -1308,6 +1313,7 @@ export function EntryShell({
                   onOpen={onOpenProject}
                   onDelete={onDeleteProject}
                   onRename={onRenameProject}
+                  seedDemoContent
                 />
               )}
             </div>
@@ -1334,6 +1340,7 @@ export function EntryShell({
                   onRename={onRenameProject}
                   canAssignInviteRoles={canManageWorkspace}
                   canManageProjectCollection={canEditTeamProjects}
+                  seedDemoContent
                 />
               )}
             </div>
@@ -1405,7 +1412,17 @@ export function EntryShell({
               />
             </div>
             <div data-testid="entry-view-integrations" data-active={view === 'integrations' ? 'true' : 'false'} {...inactiveViewProps(view === 'integrations')}>
-              <PluginMarketplaceDemo onTryPlugin={tryMarketplacePlugin} />
+              {view === 'integrations' ? (
+                <IntegrationsView
+                  config={config}
+                  initialTab={integrationTab}
+                  composioConfigLoading={composioConfigLoading}
+                  onConfigPersist={onConfigPersist}
+                  onPersistComposioKey={onPersistComposioKey}
+                  onSkillsRefresh={onSkillsRefresh}
+                  onSkillsChanged={onSkillsChanged}
+                />
+              ) : null}
             </div>
           </div>
         </main>

@@ -2,20 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { resolveCommunityTemplatePreset } from '../../src/components/community-template-presets';
 
 describe('community template presets', () => {
-  it('keeps each community template remixable as a distinct project preset', () => {
-    const ids = [
-      'electric-studio',
-      'launch-landing',
-      'founder-memo',
-      'growth-dashboard',
-    ];
-
+  it('resolves each community card to a distinct project whose name matches the card', () => {
+    // Card id -> the title shown on the Community card (CommunityView.tsx).
+    // The resolved project must carry the SAME name, so remixing a card never
+    // opens a differently-named starter.
+    const cardToProject: Record<string, string> = {
+      'electric-studio': 'Open Design Landing',
+      'launch-landing': 'Kanban Board',
+      'founder-memo': 'Social Carousel',
+      'growth-dashboard': 'Blog Post',
+    };
+    const ids = Object.keys(cardToProject);
     const presets = ids.map((id) => resolveCommunityTemplatePreset(id));
 
     expect(new Set(presets.map((preset) => preset.projectName)).size).toBe(ids.length);
     expect(new Set(presets.map((preset) => preset.metadata.demoPresetId)).size).toBe(ids.length);
 
-    for (const preset of presets) {
+    for (const id of ids) {
+      const preset = resolveCommunityTemplatePreset(id);
+      expect(preset.id).toBe(id);
+      expect(preset.metadata.demoPresetId).toBe(id);
+      expect(preset.projectName).toBe(cardToProject[id]);
       expect(preset.metadata.entryFile).toBe('index.html');
       expect(preset.prompt).toContain('Template remix');
       expect(preset.html).toContain(`<title>${preset.projectName}</title>`);
