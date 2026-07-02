@@ -1,0 +1,76 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "specVersion": "1.0.0",
+  "name": "example-clone-vercel",
+  "title": "Clone Vercel",
+  "title_i18n": {
+    "en": "Clone Vercel",
+    "zh-CN": "复刻 Vercel",
+    "zh-TW": "復刻 Vercel"
+  },
+  "version": "0.1.0",
+  "description": "Clone Vercel's homepage — Geist type, dark hero, sharp developer landing.",
+  "description_i18n": {
+    "en": "Clone Vercel's homepage — Geist type, dark hero, sharp developer landing.",
+    "zh-CN": "复刻 Vercel 首页 —— Geist 字体、深色 hero、利落的开发者落地页。",
+    "zh-TW": "復刻 Vercel 首頁 —— Geist 字型、深色 hero、俐落的開發者落地頁。"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Open Design",
+    "url": "https://open-design.ai"
+  },
+  "tags": [
+    "example",
+    "first-party",
+    "web",
+    "website",
+    "web-clone",
+    "website-clone",
+    "site-clone",
+    "reproduce-site",
+    "vercel",
+    "vercel.com"
+  ],
+  "od": {
+    "kind": "scenario",
+    "taskKind": "new-generation",
+    "mode": "prototype",
+    "scenario": "web-clone",
+    "surface": "web",
+    "preview": {
+      "type": "html",
+      "entry": "./example.html",
+      "motion": "scroll"
+    },
+    "useCase": {
+      "query": {
+        "en": "Clone this website faithfully: https://vercel.com. Use the web-clone workflow — recon the site, harvest its real fonts and images, match its exact colors and scroll feel, then build a local clone. Keep the original assets; record trademarks/copyright in NOTES.md for me to replace.",
+        "zh-CN": "忠实复刻这个网站：https://vercel.com。走 web-clone 流程 —— 侦察站点、抓取真实字体与图片、照抄精确色值与滚动体感，再构建本地复刻。保留原始素材；把商标/版权项记进 NOTES.md 交我替换。"
+      }
+    },
+    "context": {
+      "skills": [
+        {
+          "ref": "web-clone"
+        }
+      ]
+    },
+    "pipeline": {
+      "stages": [
+        {
+          "id": "generate",
+          "atoms": [
+            "file-write",
+            "live-artifact"
+          ]
+        }
+      ]
+    },
+    "capabilities": [
+      "prompt:inject",
+      "fs:write",
+      "shell"
+    ]
+  }
+}

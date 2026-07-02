@@ -1,0 +1,76 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "specVersion": "1.0.0",
+  "name": "example-clone-linear",
+  "title": "Clone Linear",
+  "title_i18n": {
+    "en": "Clone Linear",
+    "zh-CN": "复刻 Linear",
+    "zh-TW": "復刻 Linear"
+  },
+  "version": "0.1.0",
+  "description": "Clone Linear's site — iconic dark gradient, glassy panels, motion feel.",
+  "description_i18n": {
+    "en": "Clone Linear's site — iconic dark gradient, glassy panels, motion feel.",
+    "zh-CN": "复刻 Linear 官网 —— 标志性深色渐变、玻璃质感面板、滚动体感。",
+    "zh-TW": "復刻 Linear 官網 —— 標誌性深色漸層、玻璃質感面板、滾動體感。"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Open Design",
+    "url": "https://open-design.ai"
+  },
+  "tags": [
+    "example",
+    "first-party",
+    "web",
+    "website",
+    "web-clone",
+    "website-clone",
+    "site-clone",
+    "reproduce-site",
+    "linear",
+    "linear.app"
+  ],
+  "od": {
+    "kind": "scenario",
+    "taskKind": "new-generation",
+    "mode": "prototype",
+    "scenario": "web-clone",
+    "surface": "web",
+    "preview": {
+      "type": "html",
+      "entry": "./example.html",
+      "motion": "scroll"
+    },
+    "useCase": {
+      "query": {
+        "en": "Clone this website faithfully: https://linear.app. Use the web-clone workflow — recon the site, harvest its real fonts and images, match its exact colors and scroll feel, then build a local clone. Keep the original assets; record trademarks/copyright in NOTES.md for me to replace.",
+        "zh-CN": "忠实复刻这个网站：https://linear.app。走 web-clone 流程 —— 侦察站点、抓取真实字体与图片、照抄精确色值与滚动体感，再构建本地复刻。保留原始素材；把商标/版权项记进 NOTES.md 交我替换。"
+      }
+    },
+    "context": {
+      "skills": [
+        {
+          "ref": "web-clone"
+        }
+      ]
+    },
+    "pipeline": {
+      "stages": [
+        {
+          "id": "generate",
+          "atoms": [
+            "file-write",
+            "live-artifact"
+          ]
+        }
+      ]
+    },
+    "capabilities": [
+      "prompt:inject",
+      "fs:write",
+      "shell"
+    ]
+  }
+}
