@@ -231,7 +231,7 @@ export function InsufficientCreditsDialog({
               className="entry-invite__btn is-primary"
               onClick={() => onBuyPack('自动充值设置已保存')}
             >
-              保存
+              保存设置
             </button>
           ) : (
             <button

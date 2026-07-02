@@ -5828,7 +5828,14 @@
   border-color: var(--accent);
   color: #fff;
 }
-.entry-invite__btn.is-primary:hover { filter: brightness(1.05); }
+/* Pin the accent fill on hover — the global `button:hover` rule in
+   primitives.css would otherwise repaint the background to --bg-subtle and
+   make the white label vanish. */
+.entry-invite__btn.is-primary:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.05);
+}
 
 /* ── Canva-style split invite dialog ── */
 .entry-invite__panel--split {
