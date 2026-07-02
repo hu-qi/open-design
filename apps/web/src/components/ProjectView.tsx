@@ -240,6 +240,7 @@ import { SHARE_TO_COMMUNITY_PROMPT } from './share-to-community/shareToCommunity
 import { CenteredLoader } from './Loading';
 import type { SettingsSection } from './SettingsDialog';
 import { Toast } from './Toast';
+import { FirstArtifactHint } from './FirstArtifactHint';
 import {
   consumePendingOnboardingEntry,
   type OnboardingEntry,
@@ -2455,6 +2456,15 @@ export function ProjectView({
     () => new Set(projectFiles.map((f) => f.name)),
     [projectFiles],
   );
+  // A previewable artifact exists once any HTML file has been produced. Gates
+  // the one-time first-generation hint (spec §8.3); the hint component owns its
+  // own once-ever "seen" budget.
+  const hasPreviewableArtifact = useMemo(() => {
+    for (const name of projectFileNames) {
+      if (name.toLowerCase().endsWith('.html')) return true;
+    }
+    return false;
+  }, [projectFileNames]);
   const activeProjectFileName = useMemo(
     () => (
       openTabsState.active && projectFileNames.has(openTabsState.active)
@@ -7947,6 +7957,9 @@ export function ProjectView({
           initialViewId="kit"
           onClose={() => setContextDesignSystemDetails(null)}
         />
+      ) : null}
+      {hasPreviewableArtifact && !currentConversationStreaming ? (
+        <FirstArtifactHint />
       ) : null}
       <AnimatePresence>
         {projectActionsToast ? (
