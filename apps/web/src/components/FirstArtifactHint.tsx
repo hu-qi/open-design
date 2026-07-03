@@ -13,14 +13,15 @@ import { Icon } from './Icon';
 import styles from './FirstArtifactHint.module.css';
 
 // One-time, one-line hint shown when a new user's first previewable artifact
-// appears in Studio (spec §8.3). Self-contained: it owns its own "seen"
-// gating so mounting/unmounting as the parent's eligibility flickers can never
-// show it twice. The parent decides *when* it's eligible (a previewable
-// artifact exists and the turn has settled); this component decides whether it
-// has already been spent. Kept deliberately small and non-modal so it never
-// stacks as a second guide against the post-turn NextStepActions card
-// (spec §8.5: one main guide at a time) — it sits in the preview corner while
-// NextStepActions lives in the chat.
+// appears in Studio (spec §8.3). The once-ever budget is spent when the USER
+// dismisses it — not on show — so parent-gate flicker (a transient files
+// refresh or streaming blip unmounting and remounting this component) can't
+// silently burn the hint before anyone reads it. Remounts before dismissal
+// simply show it again, which matches the spec: visible until closed or used.
+// Kept deliberately small and non-modal so it never stacks as a second guide
+// against the post-turn NextStepActions card (spec §8.5: one main guide at a
+// time) — it sits in the preview corner while NextStepActions lives in the
+// chat.
 export function FirstArtifactHint() {
   const t = useT();
   const analytics = useAnalytics();
@@ -30,9 +31,6 @@ export function FirstArtifactHint() {
   useEffect(() => {
     if (!visible || firedRef.current) return;
     firedRef.current = true;
-    // Spend the one-time budget as soon as it's shown, so a remount can't
-    // re-trigger it even before the user dismisses.
-    markFirstArtifactHintSeen();
     trackStudioOnboardingHintSurfaceView(analytics.track, {
       page_name: 'chat_panel',
       area: 'onboarding_first_artifact_hint',
@@ -49,6 +47,8 @@ export function FirstArtifactHint() {
       element: 'dismiss',
       hint_type: 'view_artifact',
     });
+    // Spend the once-ever budget on the user's own close action.
+    markFirstArtifactHintSeen();
     setVisible(false);
   }
 
