@@ -495,6 +495,229 @@ describe('GET /api/projects/:id resolvedDir', () => {
     expect(body.project?.metadata?.linkedDirs?.length).toBe(1);
   });
 
+  it('replaces, clears, and preserves metadata.linkedDirs on PATCH /api/projects/:id', async () => {
+    const firstDir = makeFolder();
+    const secondDir = makeFolder();
+    const projectId = `proj-patch-linked-${Date.now()}`;
+    const createResp = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: projectId,
+        name: 'Patch linked dir',
+        metadata: { kind: 'prototype', linkedDirs: [firstDir] },
+      }),
+    });
+    expect(createResp.status).toBe(200);
+
+    const replaceResp = await fetch(`${baseUrl}/api/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { kind: 'prototype', linkedDirs: [secondDir] },
+      }),
+    });
+    expect(replaceResp.status).toBe(200);
+    const replaced = (await replaceResp.json()) as { project?: { metadata?: { linkedDirs?: string[] } } };
+    expect(replaced.project?.metadata?.linkedDirs).toEqual([await realpath(secondDir)]);
+
+    const invalidResp = await fetch(`${baseUrl}/api/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { kind: 'prototype', linkedDirs: ['/no/such/folder/here'] },
+      }),
+    });
+    expect(invalidResp.status).toBe(400);
+    const invalid = (await invalidResp.json()) as { error?: { code?: string } };
+    expect(invalid.error?.code).toBe('INVALID_LINKED_DIR');
+
+    const afterInvalidResp = await fetch(`${baseUrl}/api/projects/${projectId}`);
+    expect(afterInvalidResp.status).toBe(200);
+    const afterInvalid = (await afterInvalidResp.json()) as {
+      project?: { metadata?: { linkedDirs?: string[] } };
+    };
+    expect(afterInvalid.project?.metadata?.linkedDirs).toEqual([await realpath(secondDir)]);
+
+    const clearResp = await fetch(`${baseUrl}/api/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { kind: 'prototype', linkedDirs: [] },
+      }),
+    });
+    expect(clearResp.status).toBe(200);
+    const cleared = (await clearResp.json()) as { project?: { metadata?: { linkedDirs?: string[] } } };
+    expect(cleared.project?.metadata?.linkedDirs).toEqual([]);
+  });
+
+  it('persists project and conversation session modes through create and patch routes', async () => {
+    const projectId = `proj-session-mode-${Date.now()}`;
+    const createResp = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: projectId,
+        name: 'Session mode fixture',
+        sessionMode: 'plan',
+      }),
+    });
+    expect(createResp.status).toBe(200);
+    const createBody = (await createResp.json()) as { conversationId: string };
+
+    const listResp = await fetch(`${baseUrl}/api/projects/${projectId}/conversations`);
+    expect(listResp.status).toBe(200);
+    const listed = (await listResp.json()) as {
+      conversations: Array<{ id: string; sessionMode: string }>;
+    };
+    expect(listed.conversations.find((conversation) => conversation.id === createBody.conversationId)?.sessionMode)
+      .toBe('plan');
+
+    const chatResp = await fetch(`${baseUrl}/api/projects/${projectId}/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Ask thread', sessionMode: 'chat' }),
+    });
+    expect(chatResp.status).toBe(200);
+    const chatBody = (await chatResp.json()) as { conversation: { id: string; sessionMode: string } };
+    expect(chatBody.conversation.sessionMode).toBe('chat');
+
+    const invalidPatchResp = await fetch(
+      `${baseUrl}/api/projects/${projectId}/conversations/${chatBody.conversation.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'review' }),
+      },
+    );
+    expect(invalidPatchResp.status).toBe(200);
+    const patched = (await invalidPatchResp.json()) as { conversation: { sessionMode: string } };
+    expect(patched.conversation.sessionMode).toBe('design');
+  });
+
+  it('persists run session mode and workspace context on the pinned assistant message', async () => {
+    const projectId = `proj-run-context-${Date.now()}`;
+    const createResp = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: projectId,
+        name: 'Run context fixture',
+        sessionMode: 'design',
+      }),
+    });
+    expect(createResp.status).toBe(200);
+    const { conversationId } = (await createResp.json()) as { conversationId: string };
+    const assistantMessageId = `assistant-run-context-${Date.now()}`;
+    const workspaceContext = {
+      workspaceItems: [
+        { id: 'active-file:index.html', label: 'index.html', kind: 'file' },
+      ],
+    };
+
+    const runResp = await fetch(`${baseUrl}/api/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId,
+        conversationId,
+        assistantMessageId,
+        agentId: 'codex',
+        message: 'Use the active file as context.',
+        sessionMode: 'plan',
+        context: workspaceContext,
+      }),
+    });
+    expect(runResp.status).toBe(202);
+
+    const messagesResp = await fetch(`${baseUrl}/api/projects/${projectId}/conversations/${conversationId}/messages`);
+    expect(messagesResp.status).toBe(200);
+    const messages = ((await messagesResp.json()) as {
+      messages: Array<{
+        id: string;
+        role: string;
+        runId?: string;
+        sessionMode?: string;
+        runContext?: { workspaceItems?: Array<{ label?: string }> };
+      }>;
+    }).messages;
+    const assistant = messages.find((message) => message.id === assistantMessageId);
+    expect(assistant).toMatchObject({
+      role: 'assistant',
+      sessionMode: 'plan',
+    });
+    expect(assistant?.runId).toBeTruthy();
+    expect(assistant?.runContext).toEqual(workspaceContext);
+  });
+
+  it('adds run session mode and workspace context when pinning a preexisting assistant message', async () => {
+    const projectId = `proj-run-context-existing-${Date.now()}`;
+    const createResp = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: projectId,
+        name: 'Run context existing message fixture',
+      }),
+    });
+    expect(createResp.status).toBe(200);
+    const { conversationId } = (await createResp.json()) as { conversationId: string };
+    const assistantMessageId = `assistant-existing-run-context-${Date.now()}`;
+    const workspaceContext = {
+      workspaceItems: [
+        { id: 'active-file:existing.html', label: 'existing.html', kind: 'file' },
+      ],
+    };
+
+    const seedResp = await fetch(
+      `${baseUrl}/api/projects/${projectId}/conversations/${conversationId}/messages/${assistantMessageId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: assistantMessageId,
+          role: 'assistant',
+          content: 'placeholder',
+        }),
+      },
+    );
+    expect(seedResp.status).toBe(200);
+
+    const runResp = await fetch(`${baseUrl}/api/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId,
+        conversationId,
+        assistantMessageId,
+        agentId: 'codex',
+        message: 'Continue with this existing assistant row.',
+        sessionMode: 'chat',
+        context: workspaceContext,
+      }),
+    });
+    expect(runResp.status).toBe(202);
+
+    const messagesResp = await fetch(`${baseUrl}/api/projects/${projectId}/conversations/${conversationId}/messages`);
+    expect(messagesResp.status).toBe(200);
+    const messages = ((await messagesResp.json()) as {
+      messages: Array<{
+        id: string;
+        content: string;
+        runId?: string;
+        sessionMode?: string;
+        runContext?: { workspaceItems?: Array<{ label?: string }> };
+      }>;
+    }).messages;
+    const assistant = messages.find((message) => message.id === assistantMessageId);
+    expect(assistant).toMatchObject({
+      content: 'placeholder',
+      sessionMode: 'chat',
+    });
+    expect(assistant?.runId).toBeTruthy();
+    expect(assistant?.runContext).toEqual(workspaceContext);
+  });
+
   it('returns 404 with PROJECT_NOT_FOUND for unknown ids', async () => {
     const resp = await fetch(`${baseUrl}/api/projects/does-not-exist-${Date.now()}`);
     expect(resp.status).toBe(404);

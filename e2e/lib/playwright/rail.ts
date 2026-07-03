@@ -14,12 +14,12 @@ export async function ensureRailOpen(page: Page): Promise<void> {
   if (await toggle.isVisible().catch(() => false)) {
     await toggle.evaluate((element: HTMLElement) => element.click());
   }
-  await expect(page.locator('.entry-nav-rail')).toBeVisible();
+  await expect(page.locator('.entry')).toHaveClass(/entry--rail-open/);
+  await expect(page.locator('.entry-nav-rail')).not.toHaveAttribute('aria-hidden', 'true');
 }
 
 export async function openNewProjectModal(page: Page): Promise<void> {
   if (await page.getByTestId('new-project-panel').isVisible().catch(() => false)) return;
-  await ensureRailOpen(page);
   const railCreateButton = page.getByTestId('entry-nav-new-project');
   if (await railCreateButton.isVisible().catch(() => false)) {
     await railCreateButton.evaluate((element: HTMLElement) => element.click());
@@ -29,8 +29,11 @@ export async function openNewProjectModal(page: Page): Promise<void> {
   }
 
   const projectsNav = page.getByTestId('entry-nav-projects');
-  await expect(projectsNav).toBeVisible();
-  await projectsNav.evaluate((element: HTMLElement) => element.click());
+  if (await projectsNav.isVisible().catch(() => false)) {
+    await projectsNav.evaluate((element: HTMLElement) => element.click());
+  } else if (!/\/projects$/.test(new URL(page.url()).pathname)) {
+    await page.goto('/projects', { waitUntil: 'domcontentloaded' });
+  }
   const projectsView = page.getByTestId('entry-view-projects');
   await expect(projectsView).toBeVisible();
   const createButton = projectsView
