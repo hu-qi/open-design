@@ -194,6 +194,8 @@ const CONFIG_STRING_FLAGS = new Set(['daemon-url', 'value', 'value-json']);
 const CONFIG_BOOLEAN_FLAGS = new Set(['help', 'h', 'json']);
 const AMR_STRING_FLAGS = new Set(['daemon-url']);
 const AMR_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'refresh']);
+const COLLAB_STRING_FLAGS = new Set(['daemon-url', 'project', 'member', 'name', 'role']);
+const COLLAB_BOOLEAN_FLAGS = new Set(['help', 'h', 'json']);
 const PROJECT_STRING_FLAGS = new Set([
   'daemon-url', 'name', 'skill', 'design-system', 'plugin', 'metadata-json',
   'pending-prompt', 'project', 'conversation', 'message', 'prompt',
@@ -310,6 +312,7 @@ const SUBCOMMAND_MAP = {
   media: runMedia,
   mcp: runMcp,
   amr: runAmr,
+  collab: runCollab,
   research: runResearch,
   plugin: runPlugin,
   ui: runUi,
@@ -681,6 +684,135 @@ Options:
     }
     default:
       console.error(`unknown subcommand: od amr ${sub}`);
+      process.exit(2);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand: od collab …  (team-edition collaboration — C lane)
+// ---------------------------------------------------------------------------
+
+function printCollabHelp() {
+  console.log(`Usage:
+  od collab status <projectId> [--json]
+  od collab presence <projectId> [--json]
+  od collab heartbeat <projectId> --member <id> [--name <name>] [--role owner|admin|member] [--json]
+  od collab leave <projectId> --member <id> [--json]
+  od collab changed <projectId> [--json]
+  od collab publish <projectId> [--json]
+
+Team-edition collaboration (C lane): presence overlay + sync trigger. The
+client is authoritative about whether it is in a shared context, so it drives
+the trigger; the daemon coalesces author edits and flushes at a run boundary,
+advancing the published head version members poll to learn when to pull.
+
+Options:
+  --project <id>       Project id (alternative to the positional argument).
+  --member <id>        Member id for the presence heartbeat / leave.
+  --name <name>        Display name attached to a heartbeat.
+  --role <role>        owner | admin | member.
+  --json               Emit raw JSON.
+  --daemon-url <url>   Override daemon URL.
+
+Examples:
+  od collab presence p1 --json
+  od collab heartbeat p1 --member m-42 --name "Ma Shu" --role member
+  od collab publish p1
+  od collab status p1 --json`);
+}
+
+async function runCollab(args) {
+  const sub = args[0];
+  if (!sub || sub === 'help' || args.includes('--help') || args.includes('-h')) {
+    printCollabHelp();
+    process.exit(!sub ? 2 : 0);
+  }
+  const rest = args.slice(1);
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: COLLAB_STRING_FLAGS, boolean: COLLAB_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const projectId =
+    flags.project || positionalArgs(rest, COLLAB_STRING_FLAGS)[0] || process.env.OD_PROJECT_ID;
+  if (!projectId) {
+    console.error('missing <projectId> (positional, --project, or OD_PROJECT_ID)');
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  const encoded = encodeURIComponent(projectId);
+
+  const request = async (method, path, body) => {
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/projects/${encoded}${path}`, {
+        method,
+        ...(body !== undefined
+          ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+          : {}),
+      });
+    } catch (err) {
+      surfaceFetchError(err, base);
+      process.exit(3);
+    }
+    if (!resp.ok) return structuredHttpFailure(resp);
+    return resp.json();
+  };
+
+  const emit = (payload, plain) => {
+    if (flags.json) return process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+    return plain();
+  };
+
+  switch (sub) {
+    case 'status': {
+      const body = await request('GET', '/collab/status');
+      return emit(body, () => console.log(`publishedVersion\t${body?.publishedVersion ?? '-'}`));
+    }
+    case 'presence': {
+      const body = await request('GET', '/presence');
+      return emit(body, () => {
+        const present = Array.isArray(body?.present) ? body.present : [];
+        if (present.length === 0) return console.log('no members present');
+        for (const m of present) console.log(`${m.memberId}\t${m.name ?? '-'}\t${m.role ?? '-'}`);
+      });
+    }
+    case 'heartbeat': {
+      if (!flags.member) {
+        console.error('missing --member <id>');
+        process.exit(2);
+      }
+      const memberBody = {
+        memberId: flags.member,
+        ...(flags.name ? { name: flags.name } : {}),
+        ...(flags.role ? { role: flags.role } : {}),
+      };
+      const body = await request('POST', '/presence/heartbeat', memberBody);
+      return emit(body, () => {
+        const present = Array.isArray(body?.present) ? body.present : [];
+        console.log(`ok\t${present.length} present`);
+      });
+    }
+    case 'leave': {
+      if (!flags.member) {
+        console.error('missing --member <id>');
+        process.exit(2);
+      }
+      const body = await request('POST', '/presence/leave', { memberId: flags.member });
+      return emit(body, () => console.log('left'));
+    }
+    case 'changed': {
+      const body = await request('POST', '/collab/changed');
+      return emit(body, () => console.log('change queued'));
+    }
+    case 'publish': {
+      const body = await request('POST', '/collab/publish');
+      return emit(body, () => console.log('publish requested'));
+    }
+    default:
+      console.error(`unknown subcommand: od collab ${sub}`);
       process.exit(2);
   }
 }
