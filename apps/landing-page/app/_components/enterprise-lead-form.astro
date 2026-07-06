@@ -456,8 +456,18 @@ const countryOptions = buildCountryOptions(locale);
         });
         if (!res.ok) throw new Error('request_failed');
         track('lead_submit_success', leadProps);
-        // Host pages (the pricing modal) layer legacy analytics on this.
-        form.dispatchEvent(new CustomEvent('od:lead-success', { bubbles: true, detail: leadProps }));
+        // Host pages (the pricing modal) layer legacy analytics on this. The
+        // detail carries the segmentation props PLUS the presence booleans the
+        // pre-shared-form `team_lead_submit` contract exposed, so the bridge
+        // can keep that event's original schema intact.
+        form.dispatchEvent(new CustomEvent('od:lead-success', {
+          bubbles: true,
+          detail: Object.assign({}, leadProps, {
+            has_company: !!payload.company,
+            has_role: !!payload.role,
+            has_message: !!payload.message,
+          }),
+        }));
         form.hidden = true;
         if (successEl) {
           successEl.hidden = false;

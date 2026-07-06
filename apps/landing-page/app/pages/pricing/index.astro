@@ -520,9 +520,26 @@ const jsonLd = [
 
         // Legacy funnel continuity: the shared form emits lead_submit_success
         // (page_name: 'pricing'); existing dashboards also watch
-        // team_lead_submit, so mirror the segmentation props onto it.
+        // team_lead_submit, so mirror it here. The legacy schema (team_size /
+        // budget with '(none)' fallbacks + has_* presence booleans) is
+        // preserved verbatim so pre-existing filters keep matching, and the
+        // shared form's richer props (seats, country, industry, use case)
+        // ride alongside.
         modal.addEventListener('od:lead-success', (e) => {
-          track('team_lead_submit', Object.assign({}, (e && e.detail) || {}));
+          const d = (e && e.detail) || {};
+          track('team_lead_submit', {
+            team_size: d.team_size || '(none)',
+            budget: d.budget || '(none)',
+            has_company: !!d.has_company,
+            has_role: !!d.has_role,
+            has_seats: !!d.seats,
+            has_message: !!d.has_message,
+            seats: d.seats || '',
+            country: d.country || '',
+            industry: d.industry || '',
+            use_case: d.use_case || '',
+            use_case_count: d.use_case_count || 0,
+          });
         });
       }
     })();
