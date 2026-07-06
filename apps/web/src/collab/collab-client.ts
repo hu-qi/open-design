@@ -5,11 +5,11 @@
 //
 // Polling-based by design (live cursors were cut; content is polled — spec §D6).
 
-export interface CollabPresenceMember {
-  memberId: string;
-  name?: string;
-  role?: 'owner' | 'admin' | 'member';
-}
+import type { CollabPresenceMember } from '@open-design/contracts';
+
+// Presence identity is the shared contract DTO; re-export so collab consumers
+// keep importing it from the client module.
+export type { CollabPresenceMember };
 
 export interface CollabSnapshot {
   present: CollabPresenceMember[];

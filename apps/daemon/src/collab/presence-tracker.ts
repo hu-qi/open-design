@@ -9,11 +9,11 @@
 // join/leave fire `onChange` immediately so an active viewer's arrival/exit can
 // be broadcast without waiting for the next poll.
 
-export interface PresenceMember {
-  memberId: string;
-  name?: string;
-  role?: 'owner' | 'admin' | 'member';
-}
+import type { CollabPresenceMember } from '@open-design/contracts';
+
+// The presence identity shape is the shared contract DTO; keep the local name
+// for existing daemon-side imports.
+export type PresenceMember = CollabPresenceMember;
 
 export interface CollabPresenceTrackerOptions {
   /** A member is considered gone this long after their last heartbeat. */
