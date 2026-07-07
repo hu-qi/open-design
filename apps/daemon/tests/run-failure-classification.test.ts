@@ -1105,6 +1105,18 @@ describe('classifyRunFailure — signal and interrupt attribution', () => {
     expect(
       classify(
         'AGENT_EXECUTION_FAILED',
+        'Failed to process error response\nstatusCode:403',
+      ),
+    ).toMatchObject({
+      failure_category: 'upstream_unavailable',
+      failure_detail: 'upstream_client_error',
+      retryable: false,
+      user_action: 'none',
+    });
+
+    expect(
+      classify(
+        'AGENT_EXECUTION_FAILED',
         [
           '============================================================',
           'Bun v1.3.10 (30e609e0) Windows x64 (baseline)',

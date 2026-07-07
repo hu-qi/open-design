@@ -325,11 +325,11 @@ function upstreamDetail(text: string): TrackingRunFailureDetail {
     .test(text)) {
     return 'stream_disconnected';
   }
+  if (isUpstreamClientErrorText(text)) return 'upstream_client_error';
   if (/\b(?:http|status|error|response)(?:[ _-]?code)?[\s:=#-]*5\d\d\b|\b5\d\d\s+(?:bad gateway|service unavailable|internal server error|gateway timeout)|\b(5xx|bad gateway|gateway timeout|internal server error|service unavailable|upstream[ _-](?:error|unavailable)|provider (?:error|unavailable)|overloaded|Unexpected server error|Failed to process error response)\b/i
     .test(text)) {
     return 'upstream_5xx';
   }
-  if (isUpstreamClientErrorText(text)) return 'upstream_client_error';
   return 'network_error';
 }
 
