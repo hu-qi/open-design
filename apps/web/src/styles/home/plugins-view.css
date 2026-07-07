@@ -870,3 +870,11 @@
   font-weight: 600;
   color: var(--accent);
 }
+.plugins-view__team-section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 640;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}

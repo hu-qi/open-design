@@ -6,7 +6,10 @@ import {
   type ApplyResult,
   type InstalledPluginRecord,
   type PluginSourceKind,
+  type SkillSummary,
 } from '@open-design/contracts';
+import { fetchSkills } from '../providers/registry';
+import { localizeSkillName } from '../i18n/content';
 import { useAnalytics } from '../analytics/provider';
 import {
   trackPageView,
@@ -2081,10 +2084,11 @@ function normalizePluginName(name: string): string {
   return name.trim().toLowerCase();
 }
 
-// Team plugins: the member's installed plugins, each shareable to the team so
-// teammates can pull them. Shared plugins are pushed to the resource hub under
-// the `plugin` kind (the same content-shared source of truth as design systems).
-// Off-team the fetch degrades to an empty collection.
+// Team resources: the member's installed plugins and personal skills, each
+// shareable to the team so teammates can pull them. Shared resources are pushed
+// to the resource hub under their kind (`plugin` / `skill`) — the same
+// content-shared source of truth as design systems. Off-team the fetches
+// degrade to empty collections.
 function TeamPanel({
   t,
   plugins,
@@ -2092,40 +2096,58 @@ function TeamPanel({
   t: ReturnType<typeof useI18n>['t'];
   plugins: InstalledPluginRecord[];
 }) {
-  const [sharedIds, setSharedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const { locale } = useI18n();
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [sharedPluginIds, setSharedPluginIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [sharedSkillIds, setSharedSkillIds] = useState<ReadonlySet<string>>(() => new Set());
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    const loadShared = async (
+      basePath: string,
+      setter: (ids: ReadonlySet<string>) => void,
+    ) => {
       try {
-        const res = await fetch('/api/workspace/plugins/team');
+        const res = await fetch(`/api/workspace/${basePath}/team`);
         if (!res.ok) return;
         const body = (await res.json()) as { ids?: unknown };
         if (!cancelled && Array.isArray(body.ids)) {
-          setSharedIds(new Set(body.ids.filter((id): id is string => typeof id === 'string')));
+          setter(new Set(body.ids.filter((id): id is string => typeof id === 'string')));
         }
       } catch {
-        // Off-team / offline → empty team collection.
+        // Off-team / offline → leave the collection empty.
       }
+    };
+    void (async () => {
+      const userSkills = (await fetchSkills()).filter((s) => s.source === 'user');
+      if (!cancelled) setSkills(userSkills);
+      await Promise.all([
+        loadShared('plugins', setSharedPluginIds),
+        loadShared('skills', setSharedSkillIds),
+      ]);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  async function share(record: InstalledPluginRecord) {
+  async function share(
+    basePath: string,
+    id: string,
+    setShared: (update: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void,
+  ) {
     if (sharingId) return;
-    setSharingId(record.id);
+    setSharingId(id);
     setFailed(false);
     try {
-      const res = await fetch(`/api/workspace/plugins/${encodeURIComponent(record.id)}/share`, {
+      const res = await fetch(`/api/workspace/${basePath}/${encodeURIComponent(id)}/share`, {
         method: 'POST',
       });
       const body = (await res.json().catch(() => ({}))) as { shared?: boolean };
       if (res.ok && body.shared) {
-        setSharedIds((prev) => new Set(prev).add(record.id));
+        setShared((prev) => new Set(prev).add(id));
       } else {
         setFailed(true);
       }
@@ -2136,6 +2158,32 @@ function TeamPanel({
     }
   }
 
+  const renderRow = (id: string, title: string, shared: boolean, onShare: () => void) => (
+    <article key={id} className="plugins-view__available-card">
+      <div className="plugins-view__available-main">
+        <div className="plugins-view__row-title">
+          <span>{title}</span>
+        </div>
+      </div>
+      <div className="plugins-view__row-actions">
+        {shared ? (
+          <span className="plugins-view__shared-badge">
+            <Icon name="check" size={13} /> {t('pluginsView.tab.team')}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="plugins-view__primary"
+            onClick={onShare}
+            disabled={sharingId === id}
+          >
+            {t('dsManager.shareToTeam')}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+
   return (
     <section className="plugins-view__team-collection" aria-labelledby="plugins-team-title">
       <header className="plugins-view__team-header">
@@ -2144,35 +2192,27 @@ function TeamPanel({
         {failed ? <p role="alert">{t('dsManager.shareToTeamFailed')}</p> : null}
       </header>
       {plugins.length > 0 ? (
-        <div className="plugins-view__available-list">
-          {plugins.map((record) => {
-            const shared = sharedIds.has(record.id);
-            return (
-              <article key={record.id} className="plugins-view__available-card">
-                <div className="plugins-view__available-main">
-                  <div className="plugins-view__row-title">
-                    <span>{record.title}</span>
-                  </div>
-                </div>
-                <div className="plugins-view__row-actions">
-                  {shared ? (
-                    <span className="plugins-view__shared-badge">
-                      <Icon name="check" size={13} /> {t('pluginsView.tab.team')}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="plugins-view__primary"
-                      onClick={() => void share(record)}
-                      disabled={sharingId === record.id}
-                    >
-                      {t('dsManager.shareToTeam')}
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+        <div>
+          <h3 className="plugins-view__team-section-title">{t('entry.navPlugins')}</h3>
+          <div className="plugins-view__available-list">
+            {plugins.map((record) =>
+              renderRow(record.id, record.title, sharedPluginIds.has(record.id), () =>
+                void share('plugins', record.id, setSharedPluginIds),
+              ),
+            )}
+          </div>
+        </div>
+      ) : null}
+      {skills.length > 0 ? (
+        <div>
+          <h3 className="plugins-view__team-section-title">{t('homeHero.skills')}</h3>
+          <div className="plugins-view__available-list">
+            {skills.map((skill) =>
+              renderRow(skill.id, localizeSkillName(locale, skill), sharedSkillIds.has(skill.id), () =>
+                void share('skills', skill.id, setSharedSkillIds),
+              ),
+            )}
+          </div>
         </div>
       ) : null}
     </section>
