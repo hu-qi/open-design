@@ -53,11 +53,15 @@ async function startCollabStubServer(): Promise<StubServer> {
         return;
       }
       if (method === 'GET' && url === '/api/projects/p1/collab/status') {
-        res.end(JSON.stringify({ publishedVersion: 7 }));
+        res.end(JSON.stringify({ publishedVersion: 7, syncState: 'synced' }));
         return;
       }
       if (method === 'POST' && url === '/api/projects/p1/collab/publish') {
         res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      if (method === 'POST' && url === '/api/projects/p1/collab/sync-intent') {
+        res.end(JSON.stringify({ ok: true, syncState: 'pending_upload' }));
         return;
       }
       res.statusCode = 404;
@@ -132,6 +136,26 @@ describe('od collab CLI', () => {
       'POST /api/projects/p1/collab/publish',
       'GET /api/projects/p1/collab/status',
     ]);
+  });
+
+  it('sends the D→C team-share intent and reports the sync state', async () => {
+    stub = await startCollabStubServer();
+    const share = await runCli(['collab', 'share', 'p1', '--json', '--daemon-url', stub.baseUrl]);
+    expect(share.code).toBe(0);
+    expect(JSON.parse(share.stdout)).toEqual({ ok: true, syncState: 'pending_upload' });
+    expect(stub.requests).toHaveLength(1);
+    expect(stub.requests[0]).toMatchObject({ method: 'POST', url: '/api/projects/p1/collab/sync-intent' });
+    expect(JSON.parse(stub.requests[0]!.body)).toEqual({
+      event: 'project_team_share_requested',
+      projectId: 'p1',
+    });
+  });
+
+  it('surfaces the sync state in status output', async () => {
+    stub = await startCollabStubServer();
+    const status = await runCli(['collab', 'status', 'p1', '--daemon-url', stub.baseUrl]);
+    expect(status.code).toBe(0);
+    expect(status.stdout).toContain('synced');
   });
 
   it('rejects a heartbeat with no --member', async () => {

@@ -5,7 +5,7 @@
 //
 // Polling-based by design (live cursors were cut; content is polled — spec §D6).
 
-import type { CollabPresenceMember } from '@open-design/contracts';
+import type { CollabPresenceMember, ProjectSyncState } from '@open-design/contracts';
 
 // Presence identity is the shared contract DTO; re-export so collab consumers
 // keep importing it from the client module.
@@ -14,6 +14,8 @@ export type { CollabPresenceMember };
 export interface CollabSnapshot {
   present: CollabPresenceMember[];
   publishedVersion: number | null;
+  /** C-owned project sync state; null until the first status poll lands. */
+  syncState: ProjectSyncState | null;
 }
 
 export interface CollabClientOptions {
@@ -42,7 +44,7 @@ export class CollabClient {
   private readonly onUpdate?: CollabClientOptions['onUpdate'];
   private readonly onError?: CollabClientOptions['onError'];
   private readonly timers: ReturnType<typeof setInterval>[] = [];
-  private snapshot: CollabSnapshot = { present: [], publishedVersion: null };
+  private snapshot: CollabSnapshot = { present: [], publishedVersion: null, syncState: null };
   private running = false;
 
   constructor(options: CollabClientOptions) {
@@ -100,7 +102,8 @@ export class CollabClient {
     try {
       const body = await this.get('/collab/status');
       const version = typeof body?.publishedVersion === 'number' ? body.publishedVersion : null;
-      this.update({ publishedVersion: version });
+      const syncState = (body?.syncState as ProjectSyncState | undefined) ?? null;
+      this.update({ publishedVersion: version, syncState });
     } catch (error) {
       this.onError?.(error);
     }

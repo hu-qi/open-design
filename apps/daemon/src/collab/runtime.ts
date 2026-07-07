@@ -18,6 +18,7 @@ import {
   createDevWorkspaceContextProvider,
   type WorkspaceContextProvider,
 } from './workspace-context.js';
+import type { ProjectSyncState } from '@open-design/contracts';
 
 export interface CollabRuntime {
   presence: CollabPresenceTracker;
@@ -26,6 +27,14 @@ export interface CollabRuntime {
   workspaceContext: WorkspaceContextProvider;
   /** Last published version for a project (members poll this to know what to pull). */
   publishedVersion(projectId: string): number | null;
+  /** C-owned sync state for a project (`local_only` until a share is requested). */
+  projectSyncState(projectId: string): ProjectSyncState;
+  /**
+   * D→C sync-intent seam: mark a project as awaiting upload and flush a publish.
+   * D calls this (through the route) when a project flips to team-visible; C
+   * orchestrates the publish, which drives E's resource mechanism behind it.
+   */
+  requestTeamShare(projectId: string): void;
   dispose(): void;
 }
 
@@ -44,17 +53,25 @@ export interface CreateCollabRuntimeOptions {
 export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): CollabRuntime {
   const adapter = options.adapter ?? createStubResourcePublishAdapter();
   const published = new Map<string, number>();
-  // Always track the published head so members can poll it; also forward to any
-  // caller-supplied onPublished. (exactOptionalPropertyTypes forbids assigning an
-  // explicit `undefined` to an optional property, hence the conditional onError.)
+  const syncStates = new Map<string, ProjectSyncState>();
+  // Always track the published head + sync state so members can poll them; also
+  // forward to any caller-supplied callback. (exactOptionalPropertyTypes forbids
+  // assigning an explicit `undefined` to an optional property, hence we always
+  // wrap onError rather than passing options.onError through conditionally.)
   const schedulerOptions: CollabPublishSchedulerOptions = {
     adapter,
     onPublished: (result) => {
       published.set(result.projectId, result.version);
+      syncStates.set(result.projectId, 'synced');
       options.onPublished?.(result);
     },
+    onError: (result) => {
+      // A failed publish leaves the prior head standing; surface it as a
+      // recoverable sync state rather than wedging the project.
+      syncStates.set(result.projectId, 'sync_failed');
+      options.onError?.(result);
+    },
   };
-  if (options.onError) schedulerOptions.onError = options.onError;
   const scheduler = new CollabPublishScheduler(schedulerOptions);
   const presenceOptions: CollabPresenceTrackerOptions = {};
   if (options.onPresenceChange) presenceOptions.onChange = options.onPresenceChange;
@@ -65,6 +82,14 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
     scheduler,
     workspaceContext,
     publishedVersion: (projectId) => published.get(projectId) ?? null,
+    projectSyncState: (projectId) => syncStates.get(projectId) ?? 'local_only',
+    requestTeamShare(projectId) {
+      // Pending until the publish confirms (onPublished → 'synced' / onError →
+      // 'sync_failed'). Flushing at a run boundary publishes the stable state.
+      syncStates.set(projectId, 'pending_upload');
+      scheduler.notifyChanged(projectId, 'share');
+      scheduler.runBoundary(projectId);
+    },
     dispose() {
       scheduler.dispose();
       presence.dispose();

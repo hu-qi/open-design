@@ -28,8 +28,13 @@ async function startSyncServer() {
   if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
   const base = `http://127.0.0.1:${address.port}`;
   return {
-    async json(route: string, options: { method?: string } = {}) {
-      const response = await fetch(`${base}${route}`, { method: options.method ?? 'GET' });
+    async json(route: string, options: { method?: string; body?: unknown } = {}) {
+      const init: RequestInit = { method: options.method ?? 'GET' };
+      if (options.body !== undefined) {
+        init.headers = { 'content-type': 'application/json' };
+        init.body = JSON.stringify(options.body);
+      }
+      const response = await fetch(`${base}${route}`, init);
       return { status: response.status, body: (await response.json()) as Record<string, any> };
     },
     // Publishing is async (flush → adapter → onPublished); poll until it lands.
@@ -73,5 +78,49 @@ describe('collab sync routes', () => {
     await api.json('/api/projects/a/collab/publish', { method: 'POST' });
     await api.awaitPublishedVersion('/api/projects/a/collab/status', null);
     expect((await api.json('/api/projects/b/collab/status')).body.publishedVersion).toBeNull();
+  });
+
+  it('reports local_only sync state before any share', async () => {
+    const api = await startSyncServer();
+    expect((await api.json('/api/projects/p1/collab/status')).body.syncState).toBe('local_only');
+  });
+
+  it('drives the D→C team-share intent through to synced', async () => {
+    const api = await startSyncServer();
+    const intent = await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'project_team_share_requested', projectId: 'p1' },
+    });
+    expect(intent.status).toBe(200);
+    // The intent marks it pending immediately; the publish confirms asynchronously.
+    expect(['pending_upload', 'synced']).toContain(intent.body.syncState);
+
+    // Poll until the publish confirms → synced.
+    let state = intent.body.syncState;
+    for (let i = 0; i < 40 && state !== 'synced'; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      state = (await api.json('/api/projects/p1/collab/status')).body.syncState;
+    }
+    expect(state).toBe('synced');
+    expect((await api.json('/api/projects/p1/collab/status')).body.publishedVersion).toBe(1);
+  });
+
+  it('accepts a visibility-changed intent as a no-op signal', async () => {
+    const api = await startSyncServer();
+    const res = await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'project_visibility_changed', projectId: 'p1' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.syncState).toBe('local_only'); // visibility change alone doesn't publish
+  });
+
+  it('rejects an unknown sync intent event', async () => {
+    const api = await startSyncServer();
+    const res = await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'nonsense', projectId: 'p1' },
+    });
+    expect(res.status).toBe(400);
   });
 });

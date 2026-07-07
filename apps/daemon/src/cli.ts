@@ -700,11 +700,15 @@ function printCollabHelp() {
   od collab leave <projectId> --member <id> [--json]
   od collab changed <projectId> [--json]
   od collab publish <projectId> [--json]
+  od collab share <projectId> [--json]
 
 Team-edition collaboration (C lane): presence overlay + sync trigger. The
 client is authoritative about whether it is in a shared context, so it drives
 the trigger; the daemon coalesces author edits and flushes at a run boundary,
 advancing the published head version members poll to learn when to pull.
+\`share\` is the D→C team-share intent: it requests the project be published so
+members can pull it, and reports the sync state (local_only / pending_upload /
+synced / sync_failed).
 
 Options:
   --project <id>       Project id (alternative to the positional argument).
@@ -769,7 +773,18 @@ async function runCollab(args) {
   switch (sub) {
     case 'status': {
       const body = await request('GET', '/collab/status');
-      return emit(body, () => console.log(`publishedVersion\t${body?.publishedVersion ?? '-'}`));
+      return emit(body, () => {
+        console.log(`publishedVersion\t${body?.publishedVersion ?? '-'}`);
+        console.log(`syncState\t${body?.syncState ?? '-'}`);
+      });
+    }
+    case 'share': {
+      // D→C team-share intent: request the project be published so members can pull.
+      const body = await request('POST', '/collab/sync-intent', {
+        event: 'project_team_share_requested',
+        projectId,
+      });
+      return emit(body, () => console.log(`ok\tsyncState=${body?.syncState ?? '-'}`));
     }
     case 'presence': {
       const body = await request('GET', '/presence');

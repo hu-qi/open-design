@@ -59,11 +59,20 @@ export function CollabDemoView({ projectId }: { projectId: string | null }) {
     [name, role],
   );
 
-  const { present, publishedVersion, reportChange, requestPublish } = useCollab({
+  const { present, publishedVersion, syncState, reportChange, requestPublish } = useCollab({
     projectId: activeProjectId,
     member,
     enabled: Boolean(activeProjectId),
   });
+
+  const shareToTeam = async () => {
+    if (!activeProjectId) return;
+    await fetch(`/api/projects/${encodeURIComponent(activeProjectId)}/collab/sync-intent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event: 'project_team_share_requested', projectId: activeProjectId }),
+    });
+  };
 
   // Track the version this tab has "pulled" so we can surface an out-of-date
   // prompt when the author publishes a newer head — the member's pull cue.
@@ -147,6 +156,13 @@ export function CollabDemoView({ projectId }: { projectId: string | null }) {
             )}
           </div>
 
+          <div className={styles.row}>
+            <span className={styles.label}>Sync state</span>
+            <span className={styles.badge} data-anchor-state={syncState === 'sync_failed' ? 'lost' : syncState === 'synced' ? 'anchored' : 'stale'}>
+              {syncState ?? '—'}
+            </span>
+          </div>
+
           <div className={styles.actions}>
             <span className={styles.label}>Author</span>
             <button type="button" onClick={() => reportChange()}>
@@ -154,6 +170,9 @@ export function CollabDemoView({ projectId }: { projectId: string | null }) {
             </button>
             <button type="button" onClick={() => requestPublish()}>
               Publish
+            </button>
+            <button type="button" onClick={() => void shareToTeam()}>
+              Share to team (D→C)
             </button>
           </div>
         </div>

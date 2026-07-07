@@ -1,9 +1,18 @@
 import type { Express } from 'express';
+import type { ProjectSyncIntentEvent } from '@open-design/contracts';
 import type { CollabRuntime } from '../collab/runtime.js';
 
 export interface RegisterCollabSyncRoutesDeps {
-  collab: Pick<CollabRuntime, 'scheduler' | 'publishedVersion'>;
+  collab: Pick<
+    CollabRuntime,
+    'scheduler' | 'publishedVersion' | 'projectSyncState' | 'requestTeamShare'
+  >;
 }
+
+const SYNC_INTENT_EVENTS: ReadonlySet<ProjectSyncIntentEvent> = new Set([
+  'project_visibility_changed',
+  'project_team_share_requested',
+]);
 
 /**
  * Team-collab sync trigger, exposed as a client-driven capability (C lane, spec
@@ -13,7 +22,7 @@ export interface RegisterCollabSyncRoutesDeps {
  * we only coalesce and flush.
  */
 export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncRoutesDeps): void {
-  const { scheduler, publishedVersion } = deps.collab;
+  const { scheduler, publishedVersion, projectSyncState, requestTeamShare } = deps.collab;
 
   // An author-side edit landed. The publish is coalesced within the scheduler's
   // window so a burst of edits collapses into one publish.
@@ -30,8 +39,26 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
     res.json({ ok: true });
   });
 
-  // Members poll this to learn the published head version they should pull.
+  // D→C orchestration seam (spec §D1). D flips project visibility and emits a
+  // ProjectSyncIntent here; C owns the reaction. `project_team_share_requested`
+  // marks the project pending and flushes a publish (which drives E's resource
+  // mechanism behind the scheduler). `project_visibility_changed` is accepted as
+  // a no-op signal for now (the share request is the actionable one).
+  app.post('/api/projects/:id/collab/sync-intent', (req, res) => {
+    const event = (req.body as { event?: unknown } | undefined)?.event;
+    if (typeof event !== 'string' || !SYNC_INTENT_EVENTS.has(event as ProjectSyncIntentEvent)) {
+      return res.status(400).json({ error: 'invalid sync intent event' });
+    }
+    if (event === 'project_team_share_requested') requestTeamShare(req.params.id);
+    res.json({ ok: true, syncState: projectSyncState(req.params.id) });
+  });
+
+  // Members poll this to learn the published head version they should pull and
+  // the current sync state (local_only / pending_upload / synced / sync_failed).
   app.get('/api/projects/:id/collab/status', (req, res) => {
-    res.json({ publishedVersion: publishedVersion(req.params.id) });
+    res.json({
+      publishedVersion: publishedVersion(req.params.id),
+      syncState: projectSyncState(req.params.id),
+    });
   });
 }

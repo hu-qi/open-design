@@ -1,4 +1,5 @@
 import type { OkResponse } from '../common.js';
+import type { ProjectSyncState } from './project-sync.js';
 
 // Team-edition collaboration (C lane) shared DTOs: presence overlay (在场) and
 // the sync trigger. Single source of truth for the daemon routes, the web
@@ -37,9 +38,16 @@ export interface CollabPresenceLeaveResponse extends OkResponse {
 /**
  * GET /api/projects/:id/collab/status. `publishedVersion` is the head version
  * members poll to learn when to pull; null before the first publish.
+ * `syncState` is the C-owned project sync state (see {@link ProjectSyncState}).
  */
 export interface CollabSyncStatusResponse {
   publishedVersion: number | null;
+  syncState: ProjectSyncState;
+}
+
+/** POST /api/projects/:id/collab/sync-intent response. */
+export interface CollabSyncIntentResponse extends OkResponse {
+  syncState: ProjectSyncState;
 }
 
 // Workspace context seam onto the B (identity/membership) + D (visibility)
