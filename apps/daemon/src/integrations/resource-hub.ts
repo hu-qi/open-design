@@ -73,6 +73,24 @@ export interface PublishVersionInput {
   expectedVersionId?: string | null;
 }
 
+export interface BlobDescriptor {
+  digest: string;
+  size: number;
+}
+
+export interface PreparedUpload {
+  digest: string;
+  url: string;
+  method: string;
+  expiresInSeconds: number;
+}
+
+export interface PrepareUploadResult {
+  uploads: PreparedUpload[];
+  present: string[];
+  storeLive: boolean;
+}
+
 export class ResourceHubError extends Error {
   constructor(
     readonly status: number,
@@ -270,22 +288,80 @@ export function createResourceHubClient(options: ResourceHubClientOptions = {}) 
       );
     },
 
-    // Blob byte transfer is pending the transport decision (presigned vs proxy).
-    // Only the index (find-missing above) is wired; the byte path throws so a
-    // premature caller fails loudly rather than silently no-oping.
-    async pushBlob(): Promise<never> {
-      throw new ResourceHubError(
-        501,
-        'not_implemented',
-        'blob byte upload is pending the transport decision (presigned vs proxy)',
+    // Blob byte transfer: presigned + client-direct (transport decision
+    // 2026-07-07). The hub issues short-TTL URLs; bytes flow daemon<->store
+    // without passing through the hub.
+    async prepareUpload(
+      principal: ResourceHubPrincipal,
+      blobs: BlobDescriptor[],
+    ): Promise<PrepareUploadResult> {
+      return request<PrepareUploadResult>(
+        principal,
+        'POST',
+        '/api/v1/resources/blobs/uploads',
+        { blobs },
       );
     },
-    async pullBlob(): Promise<never> {
-      throw new ResourceHubError(
-        501,
-        'not_implemented',
-        'blob byte download is pending the transport decision (presigned vs proxy)',
+
+    async commitUpload(
+      principal: ResourceHubPrincipal,
+      blobs: BlobDescriptor[],
+    ): Promise<void> {
+      await request(principal, 'POST', '/api/v1/resources/blobs/uploads/commit', {
+        blobs,
+      });
+    },
+
+    // Push one blob: prepare (skips if the store already has it), PUT the bytes
+    // straight to the presigned URL, then commit so the hub verifies + indexes.
+    async pushBlob(
+      principal: ResourceHubPrincipal,
+      input: { digest: string; bytes: Uint8Array },
+    ): Promise<void> {
+      const descriptor: BlobDescriptor = {
+        digest: input.digest,
+        size: input.bytes.byteLength,
+      };
+      const prepared = await this.prepareUpload(principal, [descriptor]);
+      const upload = prepared.uploads.find(
+        (candidate) => candidate.digest === input.digest,
       );
+      if (upload) {
+        const response = await fetchImpl(upload.url, {
+          method: upload.method,
+          body: input.bytes,
+        });
+        if (!response.ok) {
+          throw new ResourceHubError(
+            response.status,
+            'blob_upload_failed',
+            `PUT to object store failed (${response.status})`,
+          );
+        }
+      }
+      await this.commitUpload(principal, [descriptor]);
+    },
+
+    // Pull one blob: resolve a presigned GET from the hub, then read bytes
+    // straight from the store.
+    async pullBlob(
+      principal: ResourceHubPrincipal,
+      digest: string,
+    ): Promise<Uint8Array> {
+      const signed = await request<{ url: string; method: string }>(
+        principal,
+        'GET',
+        `/api/v1/resources/blobs/${encodeURIComponent(digest)}/download`,
+      );
+      const response = await fetchImpl(signed.url, { method: signed.method });
+      if (!response.ok) {
+        throw new ResourceHubError(
+          response.status,
+          'blob_download_failed',
+          `GET from object store failed (${response.status})`,
+        );
+      }
+      return new Uint8Array(await response.arrayBuffer());
     },
   };
 }
