@@ -286,4 +286,3 @@ Use this checklist before considering the slides work complete.
 3. Add or extend an e2e test if the repository already has a stable deck-preview Playwright harness.
 4. Profile memory if Electron/Superset/Chrome still grow unexpectedly when opening presenter/fullscreen views.
 5. Confirm generation prompts and the blank slide-deck template both produce/use the unified slide base capability.
-
