@@ -66,6 +66,7 @@ import {
 } from './providers/daemon';
 import { AMR_LOGIN_STATUS_EVENT } from './components/amrLoginPolling';
 import { CollabDemoView } from './collab/CollabDemoView';
+import { CommunityView } from './components/CommunityView';
 import { goBack, navigate, useRoute } from './router';
 import {
   fetchDaemonConfig,
@@ -976,10 +977,11 @@ function AppInner() {
         // banner keys off `privacyDecisionAt`. They may coexist on the
         // first launch; the banner sits above the modal layer so it
         // stays actionable regardless of the active view.
-        // The collab demo is an explicit deep-link entry; don't let the
-        // first-run onboarding redirect hijack it so it stays reachable
-        // without completing onboarding first.
-        if (!next.onboardingCompleted && !window.location.pathname.startsWith('/collab-demo')) {
+        // Explicit deep-link entries (collab demo, community gallery) shouldn't be
+        // hijacked by the first-run onboarding redirect, so they stay reachable.
+        const path = window.location.pathname;
+        const exemptFromOnboarding = path.startsWith('/collab-demo') || path.startsWith('/community');
+        if (!next.onboardingCompleted && !exemptFromOnboarding) {
           navigate({ kind: 'home', view: 'onboarding' }, { replace: true });
         }
         setDaemonConfigLoaded(true);
@@ -2234,6 +2236,8 @@ function AppInner() {
     appMain = <PluginDetailView pluginId={route.pluginId} />;
   } else if (route.kind === 'collab-demo') {
     appMain = <CollabDemoView projectId={route.projectId} />;
+  } else if (route.kind === 'community') {
+    appMain = <CommunityView onRemixTemplate={() => navigate({ kind: 'home', view: 'home' })} />;
   } else if (route.kind === 'design-system-create') {
     appMain = (
       <DesignSystemCreationFlow
