@@ -52,6 +52,30 @@ describe('parseDeckThumbnails', () => {
     expect(parsed.styleText).toContain('.deck-stage {');
   });
 
+  it('rewrites :root to :host even when a CSS comment precedes it', () => {
+    // Real decks lead their `<style>` with a banner comment right before the
+    // `:root` custom-property block (e.g. `/* === VIEWPORT BASE === */`). If the
+    // rewrite is fooled by the comment, `:root` survives, matches nothing in the
+    // shadow tree, and every `var(--slide-bg)` resolves to transparent — the
+    // slide paints nothing over the near-black thumbnail host = black thumbnail.
+    const html = `<!doctype html><html><head><style>
+      /* === VIEWPORT BASE === */
+      :root { --stage-bg: #0a0a0a; --slide-bg: #ffffff; }
+      html, body { background: var(--stage-bg); }
+      .deck-stage { width: 1920px; height: 1080px; background: var(--slide-bg); }
+      .slide { position: absolute; inset: 0; background: var(--slide-bg); }
+    </style></head><body>
+      <div class="deck-viewport"><main class="deck-stage" id="deck-stage">
+        <section class="slide active" data-screen-label="01">A</section>
+      </main></div>
+    </body></html>`;
+    const parsed = parseDeckThumbnails(html);
+    expect(parsed.renderable).toBe(true);
+    // The custom properties must land on :host so they inherit into the slide.
+    expect(parsed.styleText).toContain(':host { --stage-bg: #0a0a0a; --slide-bg: #ffffff; }');
+    expect(parsed.styleText).not.toMatch(/:root\s*\{/);
+  });
+
   it('absolutizes relative asset URLs against the base href', () => {
     const parsed = parseDeckThumbnails(frameworkDeck(1), '/api/projects/p1/raw/sub');
     expect(parsed.slides[0]).toContain('src="/api/projects/p1/raw/sub/assets/pic-0.png"');

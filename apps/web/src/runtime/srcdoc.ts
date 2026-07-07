@@ -278,7 +278,7 @@ export function buildSrcdoc(
     ? injectDeckStageFallback(withMotionFreeze)
     : withMotionFreeze;
   const withDeckChrome = options.deck && options.hideDeckChrome
-    ? injectDeckChromeHiding(withDeckStageFallback)
+    ? injectDeckStageShadowChromeHiding(injectDeckChromeHiding(withDeckStageFallback))
     : withDeckStageFallback;
   const withDeck = options.deck
     ? injectDeckBridge(withDeckChrome, {
@@ -2107,6 +2107,46 @@ function injectDeckChromeHiding(doc: string): string {
   return injectBeforeHeadEnd(doc, `<style data-od-deck-chrome-hidden>
 ${DECK_CHROME_HIDE_CSS}
 </style>`);
+}
+
+function injectDeckStageShadowChromeHiding(doc: string): string {
+  return injectBeforeBodyEnd(doc, `<script data-od-deck-stage-shadow-chrome-hidden>(function(){
+  var HIDE_ID = 'od-deck-stage-shadow-chrome-hidden';
+  var CSS = '.overlay,.tapzones{display:none!important;visibility:hidden!important;pointer-events:none!important;}';
+  function hideStage(stage){
+    try {
+      if (!stage || !stage.shadowRoot) return false;
+      if (stage.shadowRoot.getElementById(HIDE_ID)) return true;
+      var style = document.createElement('style');
+      style.id = HIDE_ID;
+      style.textContent = CSS;
+      stage.shadowRoot.appendChild(style);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  function hideAll(){
+    var pending = false;
+    var stages = document.querySelectorAll('deck-stage');
+    for (var i = 0; i < stages.length; i += 1) {
+      if (!hideStage(stages[i])) pending = true;
+    }
+    return pending;
+  }
+  function schedule(){
+    if (!hideAll()) return;
+    setTimeout(schedule, 50);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', schedule, { once: true });
+  } else {
+    schedule();
+  }
+  if (typeof MutationObserver !== 'undefined') {
+    new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+  }
+})();</script>`);
 }
 
 function injectDeckBridge(

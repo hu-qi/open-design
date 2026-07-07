@@ -140,6 +140,15 @@ describe('buildSrcdoc', () => {
     );
   });
 
+  it('hides deck-stage shadow navigation when deck chrome is hidden', () => {
+    const srcdoc = buildSrcdoc(brokenDeckStageHtml, { deck: true, hideDeckChrome: true });
+
+    expect(srcdoc).toContain('data-od-deck-chrome-hidden');
+    expect(srcdoc).toContain('data-od-deck-stage-shadow-chrome-hidden');
+    expect(srcdoc).toContain('stage.shadowRoot');
+    expect(srcdoc).toContain('.overlay,.tapzones{display:none!important');
+  });
+
   it('lets modified reset keys pass through the framework deck bridge', () => {
     const srcdoc = buildSrcdoc(
       '<!doctype html><html><body><div id="deck-stage"><section class="slide">One</section></div></body></html>',

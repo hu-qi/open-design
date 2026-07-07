@@ -120,8 +120,16 @@ const DeckThumbnailItem = memo(function DeckThumbnailItem({
   // deck retries the cheap path.
   const [shadowFailed, setShadowFailed] = useState(false);
   useEffect(() => setShadowFailed(false), [parsedDeck, index]);
-  const handleShadowError = useCallback(() => setShadowFailed(true), []);
   const useShadow = parsedDeck !== null && !shadowFailed;
+  const [thumbnailReady, setThumbnailReady] = useState(false);
+  useEffect(() => {
+    setThumbnailReady(false);
+  }, [mounted, useShadow, parsedDeck, index]);
+  const handleThumbnailReady = useCallback(() => setThumbnailReady(true), []);
+  const handleShadowError = useCallback(() => {
+    setThumbnailReady(false);
+    setShadowFailed(true);
+  }, []);
 
   return (
     <button
@@ -136,15 +144,24 @@ const DeckThumbnailItem = memo(function DeckThumbnailItem({
       <span className="deck-thumbnail-frame" aria-hidden="true">
         {mounted ? (
           useShadow ? (
-            <DeckSlideThumbnail parsed={parsedDeck} index={index} onError={handleShadowError} />
+            <DeckSlideThumbnail
+              parsed={parsedDeck}
+              index={index}
+              onError={handleShadowError}
+              onReady={handleThumbnailReady}
+            />
           ) : (
             <iframe
               title={label}
               sandbox="allow-scripts allow-downloads"
               srcDoc={getSrcDoc(index)}
               tabIndex={-1}
+              onLoad={handleThumbnailReady}
             />
           )
+        ) : null}
+        {mounted && !thumbnailReady ? (
+          <span className="deck-thumbnail-loading" aria-hidden="true" />
         ) : null}
       </span>
     </button>

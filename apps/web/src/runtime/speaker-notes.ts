@@ -64,9 +64,19 @@ function buildPresenterFrameHtml(previewHtml: string): string {
 .deck-counter,
 .deck-hint,
 .deck-nav,
+.deck-floating-nav,
+.deck-floating-reset,
+.deck-controls,
 .slide-nav,
 .slides-nav,
+.slide-controls,
+.slide-counter,
 .presentation-nav,
+.presentation-controls,
+[role="navigation"][aria-label*="Deck"],
+[role="navigation"][aria-label*="deck"],
+[role="navigation"][aria-label*="Slide"],
+[role="navigation"][aria-label*="slide"],
 [data-deck-nav],
 [data-slide-nav] {
   display: none !important;
@@ -162,49 +172,9 @@ export function buildSpeakerNotesPresenterHtml(options: {
     .notes { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #1b1b1b; }
     .notes-head { height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 22px; border-bottom: 1px solid #303030; }
     .notes-title { font-size: 16px; font-weight: 800; color: #d6d6d6; }
-    .edit-toggle {
-      margin-left: auto;
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      border: 0;
-      background: transparent;
-      color: #bcbcbc;
-      font-weight: 700;
-      padding: 0;
-    }
-    .edit-toggle:hover { background: transparent; color: #e8e8e8; }
-    .edit-switch {
-      display: inline-block;
-      width: 42px;
-      height: 24px;
-      margin: 0;
-      border-radius: 999px;
-      border: 1px solid #3d3d3d;
-      background: #3a3a3a;
-      position: relative;
-      cursor: pointer;
-      transition: background 160ms ease, border-color 160ms ease;
-    }
-    .edit-switch::before {
-      content: "";
-      position: absolute;
-      width: 18px;
-      height: 18px;
-      top: 2px;
-      left: 2px;
-      border-radius: 50%;
-      background: #f5f5f5;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-      transition: transform 160ms ease;
-    }
-    .edit-toggle.is-on .edit-switch {
-      background: #2f7df6;
-      border-color: #2f7df6;
-    }
-    .edit-toggle.is-on .edit-switch::before { transform: translateX(18px); }
-    .notes-body { min-height: 0; padding: 28px; overflow: auto; }
+    .notes-body { min-height: 0; padding: 28px; overflow: auto; cursor: text; }
     .note-text { white-space: pre-wrap; font-size: clamp(16px, 1.45vw, 24px); line-height: 1.58; font-weight: 600; color: #eeeeee; }
+    .note-text:focus-visible { outline: 2px solid #6da2ff; outline-offset: 6px; border-radius: 8px; }
     .note-empty { color: #777; font-weight: 600; }
     textarea {
       width: 100%;
@@ -251,10 +221,6 @@ export function buildSpeakerNotesPresenterHtml(options: {
         <div class="notes-title" id="notes-title"></div>
         <div class="thumb-label" id="slide-label"></div>
       </div>
-      <button type="button" class="edit-toggle" id="edit" role="switch" aria-checked="false">
-        <span id="edit-label"></span>
-        <span class="edit-switch" aria-hidden="true"></span>
-      </button>
     </div>
     <div class="notes-body" id="notes-body"></div>
   </aside>
@@ -284,16 +250,13 @@ export function buildSpeakerNotesPresenterHtml(options: {
         nextLabel: document.getElementById('next-label'),
         notesTitle: document.getElementById('notes-title'),
         slideLabel: document.getElementById('slide-label'),
-        notesBody: document.getElementById('notes-body'),
-        edit: document.getElementById('edit'),
-        editLabel: document.getElementById('edit-label')
+        notesBody: document.getElementById('notes-body')
       };
       els.pause.textContent = labels.pause || 'Pause';
       els.reset.textContent = labels.reset || 'Reset';
       els.previousLabel.textContent = labels.previous || 'Previous';
       els.nextLabel.textContent = labels.next || 'Next';
       els.notesTitle.textContent = labels.title || 'Speaker notes';
-      els.editLabel.textContent = labels.edit || 'Edit';
       function fmt(ms){
         var s = Math.max(0, Math.floor(ms / 1000));
         return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -352,9 +315,10 @@ export function buildSpeakerNotesPresenterHtml(options: {
       var editing = false;
       var activeTextarea = null;
       var saveActiveEdit = null;
-      function setEditVisual(){
-        els.edit.classList.toggle('is-on', editing);
-        els.edit.setAttribute('aria-checked', editing ? 'true' : 'false');
+      function beginEdit(){
+        if (editing) return;
+        editing = true;
+        renderNotes();
       }
       function renderNotes(){
         var note = noteAt(index);
@@ -362,7 +326,6 @@ export function buildSpeakerNotesPresenterHtml(options: {
           .replace('{current}', String(index + 1))
           .replace('{total}', String(count));
         els.notesBody.textContent = '';
-        setEditVisual();
         if (editing) {
           var textarea = document.createElement('textarea');
           textarea.value = note;
@@ -390,7 +353,17 @@ export function buildSpeakerNotesPresenterHtml(options: {
         } else {
           var div = document.createElement('div');
           div.className = note.trim() ? 'note-text' : 'note-text note-empty';
+          div.tabIndex = 0;
+          div.setAttribute('role', 'textbox');
+          div.setAttribute('aria-readonly', 'true');
           div.textContent = note.trim() ? note : (labels.empty || '');
+          div.addEventListener('click', beginEdit);
+          div.addEventListener('keydown', function(ev){
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              beginEdit();
+            }
+          });
           els.notesBody.appendChild(div);
         }
       }
@@ -442,17 +415,7 @@ export function buildSpeakerNotesPresenterHtml(options: {
         tick();
         go(0);
       };
-      els.edit.addEventListener('mousedown', function(ev){
-        if (editing) ev.preventDefault();
-      });
-      els.edit.addEventListener('click', function(){
-        if (editing) {
-          if (typeof saveActiveEdit === 'function') saveActiveEdit();
-        } else {
-          editing = true;
-          renderNotes();
-        }
-      });
+      els.notesBody.addEventListener('click', beginEdit);
       // Clicking any preview cell navigates: the current stage advances, the
       // filmstrip cells jump to that slide. The iframes are pointer-events:none
       // so these clicks always land on the cell, never inside the deck.

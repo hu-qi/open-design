@@ -26,9 +26,9 @@ const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffec
 //   it visible regardless of the deck's active-slide toggle.
 // - `.overlay/.tapzones`: template decks (`deck-stage.js`) name their nav this
 //   way — belt-and-suspenders on top of DECK_CHROME_HIDE_CSS.
-const THUMB_OVERRIDE_CSS = `[data-od-thumb-wrap]{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;transform:none!important;box-shadow:none!important;}
-[data-od-thumb-slide]{position:absolute!important;inset:0!important;margin:0!important;visibility:visible!important;opacity:1!important;}
-.overlay,.tapzones{display:none!important;}`;
+const THUMB_OVERRIDE_CSS = `[data-od-thumb-wrap]{display:block!important;position:absolute!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;transform:none!important;box-shadow:none!important;visibility:visible!important;opacity:1!important;}
+[data-od-thumb-slide]{display:block!important;position:absolute!important;inset:0!important;margin:0!important;visibility:visible!important;opacity:1!important;pointer-events:none!important;}
+.overlay,.tapzones{display:none!important;visibility:hidden!important;pointer-events:none!important;}`;
 
 interface DeckCssEntry {
   css: string;
@@ -94,12 +94,15 @@ export interface DeckSlideThumbnailProps {
   index: number;
   /** Called if the shadow build fails, so the parent can render the iframe. */
   onError?: () => void;
+  /** Called once the thumbnail has a non-zero viewport and has been scaled. */
+  onReady?: () => void;
 }
 
 export const DeckSlideThumbnail = memo(function DeckSlideThumbnail({
   parsed,
   index,
   onError,
+  onReady,
 }: DeckSlideThumbnailProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
 
@@ -107,6 +110,12 @@ export const DeckSlideThumbnail = memo(function DeckSlideThumbnail({
     const host = hostRef.current;
     if (!host) return;
     let cleanup: (() => void) | undefined;
+    let ready = false;
+    const markReady = () => {
+      if (ready) return;
+      ready = true;
+      onReady?.();
+    };
     try {
       ensureDeckFonts(parsed);
       const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
@@ -171,20 +180,34 @@ export const DeckSlideThumbnail = memo(function DeckSlideThumbnail({
         canvas.style.transform = `scale(${scale})`;
         canvas.style.left = `${(w - parsed.designWidth * scale) / 2}px`;
         canvas.style.top = `${(h - parsed.designHeight * scale) / 2}px`;
+        markReady();
       };
       apply();
+
+      let frameOne = 0;
+      let frameTwo = 0;
+      if (typeof requestAnimationFrame !== 'undefined') {
+        frameOne = requestAnimationFrame(() => {
+          apply();
+          frameTwo = requestAnimationFrame(apply);
+        });
+      }
 
       let observer: ResizeObserver | null = null;
       if (typeof ResizeObserver !== 'undefined') {
         observer = new ResizeObserver(apply);
         observer.observe(host);
       }
-      cleanup = () => observer?.disconnect();
+      cleanup = () => {
+        observer?.disconnect();
+        if (frameOne) cancelAnimationFrame(frameOne);
+        if (frameTwo) cancelAnimationFrame(frameTwo);
+      };
     } catch {
       onError?.();
     }
     return () => cleanup?.();
-  }, [parsed, index, onError]);
+  }, [parsed, index, onError, onReady]);
 
   return <div ref={hostRef} className="deck-thumbnail-shadow-host" aria-hidden="true" />;
 });

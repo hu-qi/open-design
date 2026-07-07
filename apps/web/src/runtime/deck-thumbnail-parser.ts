@@ -114,9 +114,21 @@ export function parseDeckThumbnails(html: string, baseHref?: string): ParsedDeck
     }
   }
 
-  const rawStyle = Array.from(doc.querySelectorAll('style'))
-    .map((el) => el.textContent || '')
-    .join('\n');
+  // Strip CSS comments once, up-front. Every downstream rewrite here (viewport
+  // units, url() absolutizing, @font-face lifting, and crucially the
+  // `:root`/`html`/`body` → `:host` rewrite) is regex-based and treats a comment
+  // as opaque selector text. A banner comment immediately before the custom
+  // property block — `/* === VIEWPORT BASE === */\n:root { … }`, which real
+  // decks routinely emit — would otherwise leave `:root` unrewritten; `:root`
+  // matches nothing inside a shadow root, so every deck variable goes undefined
+  // and each `var(--slide-bg)` resolves to transparent, painting nothing over
+  // the near-black thumbnail host (black thumbnails). Comments are inert, so
+  // removing them changes only which selectors the rewrites can see.
+  const rawStyle = stripCssComments(
+    Array.from(doc.querySelectorAll('style'))
+      .map((el) => el.textContent || '')
+      .join('\n'),
+  );
   if (!rawStyle.trim()) return unrenderable('no-styles');
 
   const designSize = resolveDesignSize(doc, rawStyle);
@@ -247,6 +259,13 @@ function matchPxLength(body: string, prop: 'width' | 'height'): number | null {
   const value = Number(m[1]);
   if (!Number.isFinite(value) || value <= 0) return null;
   return value;
+}
+
+// Remove `/* … */` comments. Naive (a `/*` inside a string/url() literal would
+// be mis-stripped) but matches how `iterateRuleBlocks` already treats comments,
+// and deck CSS effectively never puts comment markers inside string values.
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 // Rewrite `:root`, `html`, and `body` (as standalone selectors in a selector

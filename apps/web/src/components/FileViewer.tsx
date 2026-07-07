@@ -6113,6 +6113,7 @@ function HtmlViewer({
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState('');
   const [speakerNotesSaving, setSpeakerNotesSaving] = useState(false);
   const [speakerNotesStatus, setSpeakerNotesStatus] = useState<'saved' | 'error' | null>(null);
+  const speakerNotesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const boardPreviewScaleOptions = localCommentSideDockActive ? { canvasPadding: 0 } : undefined;
   const overlayPreviewScale = effectivePreviewScale(
     previewViewport,
@@ -6233,6 +6234,13 @@ function HtmlViewer({
     const id = window.setTimeout(() => setSpeakerNotesStatus(null), 2400);
     return () => window.clearTimeout(id);
   }, [speakerNotesStatus]);
+  useEffect(() => {
+    if (!speakerNotesEditMode) return;
+    const id = window.requestAnimationFrame(() => {
+      speakerNotesTextareaRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [speakerNotesEditMode, activeDeckSlideIndex]);
   // Extra deck signal for export planning. Runtime-managed decks (`<deck-stage>` /
   // `data-screen-label`) need deck capture even when they have no plain
   // `class="slide"` marker. Plain `.slide` is intentionally excluded here:
@@ -7868,6 +7876,12 @@ function HtmlViewer({
     const ok = await saveSpeakerNotes(next);
     if (ok && options?.close !== false) setSpeakerNotesEditMode(false);
     return ok;
+  }
+
+  function beginSpeakerNotesEdit() {
+    setSpeakerNotesEditMode(true);
+    setSpeakerNotesDraft(activeSpeakerNote);
+    setSpeakerNotesStatus(null);
   }
 
   function openPresenterWindow() {
@@ -9651,7 +9665,7 @@ function HtmlViewer({
   // Independent of the rail's lazy per-slide documents so a collapsed rail
   // (which unmounts DeckThumbnailRail entirely) still renders its toggle.
   const showDeckThumbnailRail = effectiveDeck && source !== null && deckSlideTotal > 0 && !manualEditMode;
-  const showDeckFloatingNav = effectiveDeck && deckSlideTotal > 0 && !manualEditMode;
+  const showDeckFloatingNav = effectiveDeck && deckSlideTotal > 0 && !manualEditMode && !inTabPresent;
   const deckNavTotal = Math.max(deckSlideTotal, activeDeckSlideIndex + 1, 1);
   const versioningAvailable = isHtmlVersionableFile(file);
   const commentPreviewLayoutClass = [
@@ -9950,31 +9964,11 @@ function HtmlViewer({
             })}
           </span>
         </div>
-        <button
-          type="button"
-          className={`speaker-notes-edit-toggle${speakerNotesEditMode ? ' is-on' : ''}`}
-          role="switch"
-          aria-checked={speakerNotesEditMode}
-          onMouseDown={(event) => {
-            if (speakerNotesEditMode) event.preventDefault();
-          }}
-          onClick={() => {
-            if (speakerNotesEditMode) {
-              void saveActiveSpeakerNote();
-            } else {
-              setSpeakerNotesEditMode(true);
-              setSpeakerNotesDraft(activeSpeakerNote);
-              setSpeakerNotesStatus(null);
-            }
-          }}
-        >
-          <span>{t('fileViewer.speakerNotesEdit')}</span>
-          <span className="speaker-notes-switch" aria-hidden="true" />
-        </button>
       </div>
       {speakerNotesEditMode ? (
         <div className="speaker-notes-editor">
           <textarea
+            ref={speakerNotesTextareaRef}
             value={speakerNotesDraft}
             onChange={(event) => setSpeakerNotesDraft(event.currentTarget.value)}
             onBlur={() => {
@@ -9993,7 +9987,18 @@ function HtmlViewer({
           </div>
         </div>
       ) : (
-        <div className="speaker-notes-preview">
+        <div
+          className="speaker-notes-preview"
+          role="textbox"
+          tabIndex={0}
+          aria-readonly="true"
+          onClick={beginSpeakerNotesEdit}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            beginSpeakerNotesEdit();
+          }}
+        >
           {activeSpeakerNote.trim() ? (
             activeSpeakerNote
           ) : (

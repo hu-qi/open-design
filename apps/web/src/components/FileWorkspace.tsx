@@ -415,6 +415,7 @@ interface ProjectPagePreset {
   pluginHtmlPreview?: PluginPreviewSpec;
   featured?: boolean;
 }
+type PagePresetPreviewAvailability = Record<ProjectPagePresetId, 'ok' | 'missing'>;
 
 function pageText(en: string, zhCN?: string, zhTW?: string): LocalizedText {
   if (!zhCN && !zhTW) return en;
@@ -6004,6 +6005,48 @@ function pagePresetSourceLabel(preset: ProjectPagePreset, t: TranslateFn): strin
   return preset.source === 'blank' ? t('workspace.newBlankPage') : t('pluginsHome.title');
 }
 
+function pagePresetRemotePreviewUrl(preset: ProjectPagePreset): string | null {
+  const preview = preset.pluginPreview;
+  return preset.source !== 'blank' && preview?.kind === 'html' ? preview.src : null;
+}
+
+function pagePresetHasDisplayablePreview(
+  preset: ProjectPagePreset,
+  availability: PagePresetPreviewAvailability,
+): boolean {
+  if (preset.source === 'blank') return true;
+  const preview = preset.pluginPreview;
+  if (!preview || preview.kind === 'text') return false;
+  if (preview.kind === 'html') {
+    if (typeof fetch !== 'function') return true;
+    return availability[preset.id] === 'ok';
+  }
+  if (preview.kind === 'media') {
+    return Boolean(preview.poster || preview.videoUrl || preview.audioUrl);
+  }
+  return true;
+}
+
+function pagePresetPreviewErrorText(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  const lower = trimmed.toLocaleLowerCase();
+  return lower.includes('preview not found') || /^\{\s*"error"\s*:/i.test(trimmed);
+}
+
+async function validatePagePresetRemotePreview(url: string, signal: AbortSignal): Promise<boolean> {
+  const response = await fetch(url, {
+    signal,
+    headers: { Accept: 'text/html,*/*' },
+  });
+  if (!response.ok) return false;
+  const contentType = response.headers.get('content-type')?.toLocaleLowerCase() ?? '';
+  if (contentType.includes('text/html')) return true;
+  const text = await response.text().catch(() => '');
+  if (contentType.includes('application/json')) return !pagePresetPreviewErrorText(text);
+  return !pagePresetPreviewErrorText(text);
+}
+
 function pageCategoryLabel(kind: ProjectPageKind, t: TranslateFn): string {
   const item = PROJECT_PAGE_CATEGORIES.find((category) => category.id === kind);
   return item ? t(item.labelKey) : kind;
@@ -7126,6 +7169,17 @@ function PageCreatorDialog({
 }) {
   const [modalPreviewId, setModalPreviewId] = useState<ProjectPagePresetId | null>(null);
   const [subcategory, setSubcategory] = useState<string | null>(null);
+  const [previewAvailability, setPreviewAvailability] = useState<PagePresetPreviewAvailability>({});
+  const remotePreviewValidationKey = useMemo(
+    () => presets
+      .map((preset) => {
+        const url = pagePresetRemotePreviewUrl(preset);
+        return url ? `${preset.id}:${url}` : null;
+      })
+      .filter((item): item is string => item !== null)
+      .join('|'),
+    [presets],
+  );
   useEffect(() => {
     if (!open) setModalPreviewId(null);
   }, [open]);
@@ -7134,6 +7188,36 @@ function PageCreatorDialog({
   useEffect(() => {
     setSubcategory(null);
   }, [category, open]);
+  useEffect(() => {
+    if (!open) return;
+    if (typeof fetch !== 'function') return;
+    const candidates = presets
+      .map((preset) => ({ preset, url: pagePresetRemotePreviewUrl(preset) }))
+      .filter((item): item is { preset: ProjectPagePreset; url: string } => Boolean(item.url));
+    if (candidates.length === 0) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    for (const { preset, url } of candidates) {
+      void validatePagePresetRemotePreview(url, controller.signal)
+        .then((ok) => {
+          if (cancelled) return;
+          const status = ok ? 'ok' : 'missing';
+          setPreviewAvailability((prev) => (
+            prev[preset.id] === status ? prev : { ...prev, [preset.id]: status }
+          ));
+        })
+        .catch((err) => {
+          if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
+          setPreviewAvailability((prev) => (
+            prev[preset.id] === 'missing' ? prev : { ...prev, [preset.id]: 'missing' }
+          ));
+        });
+    }
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [open, presets, remotePreviewValidationKey]);
   // Keep the search box instantly responsive while deferring the heavy
   // (iframe-laden) grid re-render, so typing never blocks and results settle in
   // smoothly instead of janking on every keystroke.
@@ -7143,13 +7227,16 @@ function PageCreatorDialog({
 
   const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
   const searchPending = query !== deferredQuery;
+  const displayablePresets = presets.filter((preset) =>
+    pagePresetHasDisplayablePreview(preset, previewAvailability),
+  );
   // Facet slug for the active category (only Slides / Prototype / Image / Video
   // carry a sub-category taxonomy). Undefined for flat categories.
   const activeFacetSlug =
     PAGE_KIND_TO_FACET_SLUG[category as ProjectPageKind] ?? undefined;
   // Sub-category catalog (with counts + labels) built once from every preset's
   // backing plugin, so both the chip row and per-card tags share one source.
-  const allPresetPlugins = presets
+  const allPresetPlugins = displayablePresets
     .map((preset) => preset.plugin)
     .filter((record): record is InstalledPluginRecord => Boolean(record));
   const subcategoryCatalog = buildSubcategoryCatalog(allPresetPlugins);
@@ -7161,7 +7248,7 @@ function PageCreatorDialog({
     ? (subcategoryCatalog[activeFacetSlug] ?? []).filter((option) => option.count > 0)
     : [];
   const showSubcategoryRow = !normalizedQuery && subcategoryOptions.length > 0;
-  const activeCategoryAllCount = presets.filter(
+  const activeCategoryAllCount = displayablePresets.filter(
     (preset) => pagePresetMatchesCategory(preset, category) && preset.source !== 'blank',
   ).length;
   // Resolve the tag shown on a card: the plugin's sub-category (e.g.
@@ -7176,7 +7263,7 @@ function PageCreatorDialog({
     }
     return pageCategoryLabel(preset.category, t);
   };
-  const filteredPresets = presets.filter((preset) => {
+  const filteredPresets = displayablePresets.filter((preset) => {
     if (normalizedQuery) {
       const title = pagePresetTitle(preset, t, locale);
       const description = pagePresetDescription(preset, t, locale);
@@ -7202,13 +7289,16 @@ function PageCreatorDialog({
   const categoryCounts = new Map<ProjectPageCategoryId, number>(
     PROJECT_PAGE_CATEGORIES.map((item) => [
       item.id,
-      presets.filter((preset) => pagePresetMatchesCategory(preset, item.id)).length,
+      displayablePresets.filter((preset) => pagePresetMatchesCategory(preset, item.id)).length,
     ]),
   );
   const previewPreset =
-    projectPagePresetById(previewId, presets) ?? filteredPresets[0] ?? presets[0] ?? PROJECT_PAGE_PRESETS[0]!;
+    projectPagePresetById(previewId, displayablePresets)
+    ?? filteredPresets[0]
+    ?? displayablePresets[0]
+    ?? PROJECT_PAGE_PRESETS[0]!;
   const modalPreviewPreset = modalPreviewId
-    ? projectPagePresetById(modalPreviewId, presets) ?? previewPreset
+    ? projectPagePresetById(modalPreviewId, displayablePresets) ?? previewPreset
     : null;
   const modalPreviewUrl =
     modalPreviewPreset?.pluginHtmlPreview?.kind === 'html'
@@ -7269,7 +7359,7 @@ function PageCreatorDialog({
                 onClick={() => {
                   onCategoryChange(item.id);
                   onQueryChange('');
-                  const firstPreset = presets.find((preset) =>
+                  const firstPreset = displayablePresets.find((preset) =>
                     pagePresetMatchesCategory(preset, item.id),
                   );
                   if (firstPreset) onPreviewChange(firstPreset.id);

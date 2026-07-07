@@ -175,6 +175,8 @@ describe('speaker notes HTML helpers', () => {
     const data = JSON.parse(match![1] ?? '{}') as { previewHtml?: string };
     expect(data.previewHtml).toContain('data-od-presenter-frame-chrome');
     expect(data.previewHtml).toContain('.deck-counter,');
+    expect(data.previewHtml).toContain('.deck-floating-nav,');
+    expect(data.previewHtml).toContain('[role="navigation"][aria-label*="Deck"]');
     expect(data.previewHtml).toContain('display: none !important');
   });
 
@@ -215,7 +217,7 @@ describe('speaker notes HTML helpers', () => {
     expect(html).toContain('data.previewHtmlBySlide[target]');
   });
 
-  it('renders presenter edit as one switch button instead of a label-wrapped input', () => {
+  it('edits presenter notes from the notes body instead of a separate switch', () => {
     const html = buildSpeakerNotesPresenterHtml({
       previewHtml: '<!doctype html><html><head></head><body>slide</body></html>',
       title: 'Deck',
@@ -238,9 +240,11 @@ describe('speaker notes HTML helpers', () => {
       },
     });
 
-    expect(html).toContain('class="edit-toggle" id="edit" role="switch"');
-    expect(html).not.toContain('<label class="edit-toggle"');
+    expect(html).not.toContain('class="edit-toggle"');
+    expect(html).not.toContain('role="switch"');
     expect(html).not.toContain('type="checkbox" id="edit"');
+    expect(html).toContain("els.notesBody.addEventListener('click', beginEdit)");
+    expect(html).toContain("div.setAttribute('role', 'textbox')");
   });
 
   it('pins the previous filmstrip cell to the left column and next to the right', () => {

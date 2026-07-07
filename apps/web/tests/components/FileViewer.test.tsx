@@ -1851,10 +1851,17 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    expect(screen.getByTestId('speaker-notes-panel')).toBeTruthy();
+    const panel = screen.getByTestId('speaker-notes-panel');
+    expect(panel).toBeTruthy();
     expect(screen.getByText('Intro note')).toBeTruthy();
-    const notesSwitch = screen.getByRole('switch', { name: /edit/i });
-    expect(notesSwitch.closest('label')).toBeNull();
+    expect(within(panel).queryByRole('switch', { name: /edit/i })).toBeNull();
+
+    const preview = panel.querySelector('.speaker-notes-preview') as HTMLElement | null;
+    expect(preview).toBeTruthy();
+    fireEvent.click(preview!);
+    const editor = panel.querySelector('.speaker-notes-editor textarea') as HTMLTextAreaElement | null;
+    expect(editor).toBeTruthy();
+    expect(editor?.value).toBe('Intro note');
   });
 
   it('shows Cloudflare Pages as a deploy action without requiring a project name input', async () => {
