@@ -1,35 +1,17 @@
-import type { CollabPresenceMember } from '@open-design/contracts';
+import type {
+  CollabPresenceMember,
+  WorkspaceCollabContext,
+  WorkspaceLifecycleState,
+} from '@open-design/contracts';
 
 // The C-lane seam onto the B (workspace) + D (visibility) lanes. B owns the
 // CurrentWorkspaceContext (identity token → workspaceMemberId + role + lifecycle);
 // D owns whether a workspace/project is team-shared. Collab (presence + sync)
-// should only run for an active member of a live team workspace.
-//
-// This is a faithful SUBSET of B's `CurrentWorkspaceContext`
-// (packages/shared/src/workspace-context.ts in the vela repo) — the exact
-// fields C needs — so wiring B's real context in is a direct field pass-through
-// (replacing the demo's stubbed identity). The decision logic here is real; only
-// the source of the context remains to be wired when B ships.
+// should only run for an active member of a live team workspace. The context
+// shape is the shared contract DTO (a faithful subset of B's context), so wiring
+// B's real context in is a direct field pass-through.
 
-export type WorkspaceType = 'personal' | 'team';
-export type WorkspaceRole = 'owner' | 'admin' | 'member';
-export type WorkspaceMemberStatus = 'active' | 'removed';
-export type WorkspaceLifecycleState =
-  | 'active'
-  | 'billing_past_due'
-  | 'locked'
-  | 'deleting'
-  | 'deleted';
-
-export interface WorkspaceCollabContext {
-  workspaceType: WorkspaceType;
-  workspaceMemberId: string;
-  role: WorkspaceRole;
-  memberStatus: WorkspaceMemberStatus;
-  lifecycleState: WorkspaceLifecycleState;
-  /** Display name for the presence overlay (optional; falls back to the id). */
-  displayName?: string;
-}
+export type { WorkspaceCollabContext };
 
 export interface CollabSessionDecision {
   /** Whether to start the presence heartbeat + sync poll. */

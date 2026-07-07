@@ -570,6 +570,7 @@ import { registerOpenDesignPublicMetadataRoutes } from './routes/open-design-pub
 import { registerMemoryRoutes } from './routes/memory.js';
 import { registerCollabPresenceRoutes } from './routes/collab-presence.js';
 import { registerCollabSyncRoutes } from './routes/collab-sync.js';
+import { registerCollabContextRoutes } from './routes/collab-context.js';
 import { createCollabRuntime } from './collab/runtime.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import {
@@ -3801,6 +3802,7 @@ export async function startServer({
   const collab = createCollabRuntime();
   registerCollabPresenceRoutes(app, { collab });
   registerCollabSyncRoutes(app, { collab });
+  registerCollabContextRoutes(app, { workspaceContext: collab.workspaceContext });
 
   registerMemoryRoutes(app, {
     http: { createSseResponse, requireLocalDaemonRequest },

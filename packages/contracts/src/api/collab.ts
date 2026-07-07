@@ -41,3 +41,37 @@ export interface CollabPresenceLeaveResponse extends OkResponse {
 export interface CollabSyncStatusResponse {
   publishedVersion: number | null;
 }
+
+// Workspace context seam onto the B (identity/membership) + D (visibility)
+// lanes. A faithful SUBSET of B's `CurrentWorkspaceContext`
+// (vela packages/shared/src/workspace-context.ts) — the exact fields C needs to
+// decide whether collab runs and who the present member is — so wiring B's real
+// context in is a direct field pass-through. Field names mirror B verbatim.
+
+export type WorkspaceType = 'personal' | 'team';
+export type WorkspaceMemberStatus = 'active' | 'removed';
+export type WorkspaceLifecycleState =
+  | 'active'
+  | 'billing_past_due'
+  | 'locked'
+  | 'deleting'
+  | 'deleted';
+
+export interface WorkspaceCollabContext {
+  workspaceType: WorkspaceType;
+  workspaceMemberId: string;
+  role: CollabMemberRole;
+  memberStatus: WorkspaceMemberStatus;
+  lifecycleState: WorkspaceLifecycleState;
+  /** Display name for the presence overlay (optional; falls back to the id). */
+  displayName?: string;
+}
+
+/**
+ * GET /api/workspace/context. The daemon's single B-integration point: in
+ * production it proxies B's context for the caller; `context` is null when there
+ * is no team-workspace context (personal, signed out, or B unavailable).
+ */
+export interface WorkspaceContextResponse {
+  context: WorkspaceCollabContext | null;
+}
