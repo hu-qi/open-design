@@ -1726,16 +1726,20 @@ function OnboardingView({
     { value: 'agency', label: t('settings.onboardingUseAgency') },
   ];
   const sourceOptions = [
+    { value: 'x', label: t('settings.onboardingSourceX') },
     { value: 'github', label: t('settings.onboardingSourceGithub') },
-    { value: 'friend', label: t('settings.onboardingSourceFriend') },
-    { value: 'social', label: t('settings.onboardingSourceSocial') },
-    { value: 'product-hunt', label: t('settings.onboardingSourceProductHunt') },
-    { value: 'community', label: t('settings.onboardingSourceCommunity') },
     { value: 'youtube', label: t('settings.onboardingSourceYoutube') },
-    { value: 'blog', label: t('settings.onboardingSourceBlog') },
-    { value: 'ai-tool', label: t('settings.onboardingSourceAiTool') },
+    { value: 'tiktok', label: t('settings.onboardingSourceTiktok') },
+    { value: 'reddit', label: t('settings.onboardingSourceReddit') },
+    { value: 'linkedin', label: t('settings.onboardingSourceLinkedin') },
+    { value: 'meta_social', label: t('settings.onboardingSourceMetaSocial') },
     { value: 'search', label: t('settings.onboardingSourceSearch') },
-    { value: 'event', label: t('settings.onboardingSourceEvent') },
+    { value: 'ai_tool', label: t('settings.onboardingSourceAiTool') },
+    { value: 'friend', label: t('settings.onboardingSourceFriend') },
+    { value: 'community', label: t('settings.onboardingSourceCommunity') },
+    { value: 'email', label: t('settings.onboardingSourceEmail') },
+    { value: 'blog', label: t('settings.onboardingSourceBlog') },
+    { value: 'other', label: t('settings.onboardingSourceOther') },
   ];
 
   function cleanOnboardingOptionLabel(label: string): string {
