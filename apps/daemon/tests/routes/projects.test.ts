@@ -709,6 +709,55 @@ describe('GET /api/projects/:id resolvedDir', () => {
     expect(assistant?.runId).toBeTruthy();
   });
 
+  it('inherits the default conversation session mode for project-only runs', async () => {
+    const projectId = `proj-run-context-project-only-${Date.now()}`;
+    const createResp = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: projectId,
+        name: 'Run context project-only inherited mode fixture',
+        sessionMode: 'plan',
+      }),
+    });
+    expect(createResp.status).toBe(200);
+    const { conversationId } = (await createResp.json()) as { conversationId: string };
+
+    const runResp = await fetch(`${baseUrl}/api/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId,
+        agentId: 'codex',
+        message: 'Use the project default conversation.',
+      }),
+    });
+    expect(runResp.status).toBe(202);
+    const runBody = (await runResp.json()) as {
+      conversationId?: string | null;
+      assistantMessageId?: string | null;
+    };
+    expect(runBody.conversationId).toBe(conversationId);
+    expect(runBody.assistantMessageId).toBeTruthy();
+
+    const messagesResp = await fetch(`${baseUrl}/api/projects/${projectId}/conversations/${conversationId}/messages`);
+    expect(messagesResp.status).toBe(200);
+    const messages = ((await messagesResp.json()) as {
+      messages: Array<{
+        id: string;
+        role: string;
+        runId?: string;
+        sessionMode?: string;
+      }>;
+    }).messages;
+    const assistant = messages.find((message) => message.id === runBody.assistantMessageId);
+    expect(assistant).toMatchObject({
+      role: 'assistant',
+      sessionMode: 'plan',
+    });
+    expect(assistant?.runId).toBeTruthy();
+  });
+
   it('overwrites stale run session mode and workspace context when pinning a preexisting assistant message', async () => {
     const projectId = `proj-run-context-existing-${Date.now()}`;
     const createResp = await fetch(`${baseUrl}/api/projects`, {

@@ -604,14 +604,6 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
     if (runProject?.metadata) {
       meta.projectMetadata = runProject.metadata;
     }
-    const conversationSession =
-      typeof meta.conversationId === 'string' && meta.conversationId
-        ? getConversation(db, meta.conversationId)
-        : null;
-    meta.sessionMode =
-      meta.sessionMode === 'chat' || meta.sessionMode === 'design' || meta.sessionMode === 'plan'
-        ? normalizeConversationSessionMode(meta.sessionMode)
-        : normalizeConversationSessionMode(conversationSession?.sessionMode);
     if (
       typeof meta.projectId === 'string' &&
       meta.projectId &&
@@ -652,6 +644,14 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
         console.warn('[runs] mcp conversation fallback failed', err);
       }
     }
+    const conversationSession =
+      typeof meta.conversationId === 'string' && meta.conversationId
+        ? getConversation(db, meta.conversationId)
+        : null;
+    meta.sessionMode =
+      meta.sessionMode === 'chat' || meta.sessionMode === 'design' || meta.sessionMode === 'plan'
+        ? normalizeConversationSessionMode(meta.sessionMode)
+        : normalizeConversationSessionMode(conversationSession?.sessionMode);
     const run = design.runs.create(meta);
     try {
       pinAssistantMessageOnRunCreate(db, run);
