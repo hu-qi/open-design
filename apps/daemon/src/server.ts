@@ -231,6 +231,7 @@ import {
   readDesignSystemStaticFile,
   readUserDesignSystemFile,
   resolveDesignSystemAssets,
+  stripPrefixAndValidateId,
   updateUserDesignSystem,
   updateUserDesignSystemRevisionStatus,
 } from './design-systems/index.js';
@@ -506,6 +507,7 @@ import {
   openDatabase,
   setTabs,
   updateConversation,
+  updatePreviewCommentAnchor,
   updatePreviewCommentStatus,
   updateProject,
   updateRoutine,
@@ -568,6 +570,14 @@ import { createTerminalService } from './terminals.js';
 import { registerSocialShareRoutes } from './routes/social-share.js';
 import { registerOpenDesignPublicMetadataRoutes } from './routes/open-design-public-metadata.js';
 import { registerMemoryRoutes } from './routes/memory.js';
+import { registerCollabPresenceRoutes } from './routes/collab-presence.js';
+import { registerCollabSyncRoutes } from './routes/collab-sync.js';
+import { registerCollabContextRoutes } from './routes/collab-context.js';
+import { registerTeamResourceRoutes } from './routes/team-resources.js';
+import { registerTeamResourceShareRoutes } from './routes/team-resource-share.js';
+import { createCollabRuntime } from './collab/runtime.js';
+import { createTeamResourceShareService } from './collab/team-resource-share.js';
+import { contextToResourceHubPrincipal } from './collab/resource-hub-publish-adapter.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import {
   assembleExample,
@@ -3792,6 +3802,62 @@ export async function startServer({
   // ---- Projects (DB-backed) -------------------------------------------------
 
 
+  // Team collaboration subsystem: presence + author-side publish scheduler.
+  // The scheduler publishes/pulls through the resource-hub adapter — the real
+  // hub when OD_RESOURCE_HUB_URL + workspace member env are set, else a local
+  // stub. resolveProjectDir lets the hub adapter pack/land managed projects.
+  const collab = createCollabRuntime({
+    resolveProjectDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
+  });
+  registerCollabPresenceRoutes(app, { collab });
+  registerCollabSyncRoutes(app, { collab });
+  registerCollabContextRoutes(app, { workspaceContext: collab.workspaceContext });
+  registerTeamResourceRoutes(app, { teamResources: collab.teamResources });
+
+  // Team resource sharing: promote a personal design system, plugin, or skill
+  // into the team scope through the resource hub. All three derive the principal
+  // from the same one workspace context the project sync uses, so a single
+  // signed-in identity drives every share; each packs the resource's own
+  // directory under its own hub kind.
+  const teamShareGetPrincipal = async () =>
+    contextToResourceHubPrincipal(await collab.workspaceContext.current({}));
+  registerTeamResourceShareRoutes(app, {
+    basePath: 'design-systems',
+    share: createTeamResourceShareService({
+      kind: 'design_system',
+      idPrefix: 'ds',
+      resolveDir: (id) =>
+        path.join(USER_DESIGN_SYSTEMS_DIR, stripPrefixAndValidateId(id, 'user:') ?? '__invalid__'),
+      getPrincipal: teamShareGetPrincipal,
+    }),
+  });
+  registerTeamResourceShareRoutes(app, {
+    basePath: 'plugins',
+    share: createTeamResourceShareService({
+      kind: 'plugin',
+      idPrefix: 'plugin',
+      resolveDir: (id) => {
+        const plugin = getInstalledPlugin(db, id);
+        if (!plugin || typeof plugin.fsPath !== 'string') throw new Error('plugin not found');
+        return plugin.fsPath;
+      },
+      getPrincipal: teamShareGetPrincipal,
+    }),
+  });
+  registerTeamResourceShareRoutes(app, {
+    basePath: 'skills',
+    share: createTeamResourceShareService({
+      kind: 'skill',
+      idPrefix: 'skill',
+      resolveDir: async (id) => {
+        const skill = findSkillById(await listAllSkills(), id);
+        if (!skill || typeof skill.dir !== 'string') throw new Error('skill not found');
+        return skill.dir;
+      },
+      getPrincipal: teamShareGetPrincipal,
+    }),
+  });
+
   registerMemoryRoutes(app, {
     http: { createSseResponse, requireLocalDaemonRequest },
     paths: { RUNTIME_DATA_DIR, PROJECT_ROOT, PROJECTS_DIR },
@@ -4038,6 +4104,7 @@ export async function startServer({
     listPreviewComments,
     upsertPreviewComment,
     updatePreviewCommentStatus,
+    updatePreviewCommentAnchor,
     deletePreviewComment,
   };
   const templateDeps = { getTemplate, listTemplates, deleteTemplate, insertTemplate, findTemplateByNameAndProject, updateTemplate };
@@ -4293,6 +4360,7 @@ export async function startServer({
   registerStaticResourceRoutes(app, {
     http: httpDeps,
     paths: pathDeps,
+    teamResources: collab.teamResources,
     resources: {
       listAllSkills,
       listAllDesignTemplates,
@@ -4688,6 +4756,7 @@ export async function startServer({
 
   registerPluginRoutes(app, {
     db,
+    teamResources: collab.teamResources,
     paths: { PROJECTS_DIR, PLUGIN_REGISTRY_ROOTS, PLUGIN_LOCKFILE_PATH },
     ids: idDeps,
     projectStore: projectStoreDeps,
