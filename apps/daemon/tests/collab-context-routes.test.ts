@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import { buildWorkspacePermissions, buildWorkspaceSeatSummary } from '@open-design/contracts';
 import { registerCollabContextRoutes } from '../src/routes/collab-context.js';
 import {
   createDevWorkspaceContextProvider,
@@ -17,12 +18,31 @@ afterEach(async () => {
   }
 });
 
+/** The minimal payload a dev/demo run PUTs — only enum + identity fields. */
 const TEAM_CONTEXT = {
   workspaceType: 'team',
   workspaceMemberId: 'wm-1',
   role: 'member',
   memberStatus: 'active',
   lifecycleState: 'active',
+  displayName: 'Ma Shu',
+};
+
+/** What `parseWorkspaceCollabContext` returns: the minimal input enriched with the
+ *  fields it derives — workspaceId fallback, provider/billing defaults, and the
+ *  permissions + seat summary derived through B's shared helpers. */
+const TEAM_CONTEXT_PARSED = {
+  workspaceId: 'wm-1',
+  workspaceType: 'team',
+  workspaceMemberId: 'wm-1',
+  role: 'member',
+  memberStatus: 'active',
+  lifecycleState: 'active',
+  billingState: 'active',
+  planId: null,
+  providerMode: 'platform_credits',
+  seatSummary: buildWorkspaceSeatSummary({ seatLimit: 5, usedSeats: 1 }),
+  permissions: buildWorkspacePermissions({ role: 'member', lifecycleState: 'active' }),
   displayName: 'Ma Shu',
 };
 
@@ -49,8 +69,8 @@ async function startContextServer() {
 }
 
 describe('parseWorkspaceCollabContext', () => {
-  it('accepts a well-formed team context', () => {
-    expect(parseWorkspaceCollabContext(TEAM_CONTEXT)).toEqual(TEAM_CONTEXT);
+  it('accepts a well-formed team context and derives permissions/seats', () => {
+    expect(parseWorkspaceCollabContext(TEAM_CONTEXT)).toEqual(TEAM_CONTEXT_PARSED);
   });
 
   it('rejects a bad enum or a missing member id', () => {
@@ -70,8 +90,8 @@ describe('collab context routes', () => {
     const api = await startContextServer();
     const put = await api.req('/api/workspace/context', { method: 'PUT', body: TEAM_CONTEXT });
     expect(put.status).toBe(200);
-    expect(put.body).toEqual({ context: TEAM_CONTEXT });
-    expect((await api.req('/api/workspace/context')).body).toEqual({ context: TEAM_CONTEXT });
+    expect(put.body).toEqual({ context: TEAM_CONTEXT_PARSED });
+    expect((await api.req('/api/workspace/context')).body).toEqual({ context: TEAM_CONTEXT_PARSED });
   });
 
   it('clears the context on an empty PUT body', async () => {

@@ -1,16 +1,44 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react';
+import {
+  buildWorkspacePermissions,
+  buildWorkspaceSeatSummary,
+  type CollabMemberRole,
+  type WorkspaceCollabContext,
+  type WorkspaceLifecycleState,
+} from '@open-design/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProjectCollab } from '../src/collab/useProjectCollab';
 
-const TEAM_CONTEXT = {
-  workspaceType: 'team',
-  workspaceMemberId: 'wm-1',
-  role: 'member',
-  memberStatus: 'active',
-  lifecycleState: 'active',
-  displayName: 'Ma Shu',
-};
+/** Build a full workspace context the way the daemon serves it — permissions and
+ *  the seat summary are derived through the same helpers B ships, so the mock can
+ *  never drift from the real shape. */
+function makeContext(
+  overrides: {
+    role?: CollabMemberRole;
+    lifecycleState?: WorkspaceLifecycleState;
+    workspaceMemberId?: string;
+  } = {},
+): WorkspaceCollabContext {
+  const role = overrides.role ?? 'member';
+  const lifecycleState = overrides.lifecycleState ?? 'active';
+  return {
+    workspaceId: 'ws-1',
+    workspaceType: 'team',
+    workspaceMemberId: overrides.workspaceMemberId ?? 'wm-1',
+    role,
+    memberStatus: 'active',
+    lifecycleState,
+    billingState: 'active',
+    planId: null,
+    providerMode: 'platform_credits',
+    seatSummary: buildWorkspaceSeatSummary({ seatLimit: 5, usedSeats: 1 }),
+    permissions: buildWorkspacePermissions({ role, lifecycleState }),
+    displayName: 'Ma Shu',
+  };
+}
+
+const TEAM_CONTEXT = makeContext();
 
 function installFetch(context: unknown, present: Array<{ memberId: string }>) {
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -74,5 +102,22 @@ describe('useProjectCollab', () => {
       await vi.advanceTimersByTimeAsync(50);
     });
     expect(result.current.enabled).toBe(false);
+  });
+
+  it('freezes even the project owner read-only when the workspace is locked', async () => {
+    // Workspace-level gate: a locked workspace has canWriteSyncedFiles=false, so
+    // everyone is read-only — including an owner who would otherwise be the single
+    // writer. This is the billing-freeze behavior, distinct from the shared-project
+    // ownership gate.
+    const owner = makeContext({ role: 'owner', lifecycleState: 'locked', workspaceMemberId: 'wm-owner' });
+    const fetchImpl = installFetch(owner, [{ memberId: 'wm-owner' }]);
+    const { result } = renderHook(() => useProjectCollab('p1', { fetch: fetchImpl }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.viewerOnly).toBe(true);
   });
 });
