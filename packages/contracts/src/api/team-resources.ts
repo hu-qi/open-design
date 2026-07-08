@@ -1,16 +1,17 @@
 import type { ApiErrorCode } from '../errors.js';
 
-// Team-edition resource foundation (owned by the C/the orchestrator summary lane, per
+// Team-edition resource foundation (地基 — owned by the C/the orchestrator summary lane, per
 // the foundation contract). The copy red-line guard is a pure invariant every
 // lane calls (D, E, and our own extension surfaces) at each "copy a team
 // resource into a personal, editable copy" route. AC-9: a downgraded team must
 // not be able to escape the freeze by copying resources out.
 //
-// Pure TypeScript, dependency-free: safe to import from daemon, web, and CLI.
+// Pure TypeScript, dependency-free — safe to import from daemon, web, and CLI.
 
 /**
  * Lifecycle state of a team resource (design system / plugin / skill).
- * Canonical enum: `frozen` is set when the owning team is downgraded; the bytes are
+ * Canonical enum (replaces the earlier `downgraded_personal` / `team-shared`
+ * wording): `frozen` is set when the owning team is downgraded; the bytes are
  * untouched and `active` is restored on renewal.
  */
 export type TeamResourceState = 'active' | 'frozen' | 'deleted';
@@ -19,7 +20,7 @@ export type TeamResourceState = 'active' | 'frozen' | 'deleted';
 export interface TeamResourceCopyTarget {
   /** Personal resources copy freely; the red-line only applies to team resources. */
   scope: 'personal' | 'team';
-  /** Lifecycle state, consulted only for team-scoped resources. */
+  /** Lifecycle state — consulted only for team-scoped resources. */
   state?: TeamResourceState;
 }
 
@@ -32,7 +33,7 @@ export interface TeamResourceCopyDecision {
 
 /**
  * Pure decision: may this resource be copied into a personal, editable copy?
- * Personal resources: always. Team resources: only while `active`; a `frozen`
+ * Personal resources → always. Team resources → only while `active`; a `frozen`
  * or `deleted` team resource is blocked (the AC-9 red-line).
  */
 export function evaluateTeamResourceCopy(resource: TeamResourceCopyTarget): TeamResourceCopyDecision {
@@ -66,9 +67,9 @@ export class TeamResourceCopyForbiddenError extends Error {
 
 /**
  * The named invariant callers mount at every copy-out route (design-system
- * install/import/create/copy, plugin duplicate-project, skill edit-shadow, etc.).
- * Throws {@link TeamResourceCopyForbiddenError}, which the daemon maps to a 403
- * with the carried code, when the copy is not allowed. Must live at the route
+ * install/import/create/copy, plugin duplicate-project, skill edit-shadow, …).
+ * Throws {@link TeamResourceCopyForbiddenError} — which the daemon maps to a 403
+ * with the carried code — when the copy is not allowed. Must live at the route
  * layer, not just the UI: a CLI or external agent bypasses UI graying.
  */
 export function assertTeamResourceCopyAllowed(resource: TeamResourceCopyTarget): void {
