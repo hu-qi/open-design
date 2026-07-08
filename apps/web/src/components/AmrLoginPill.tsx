@@ -49,6 +49,12 @@ interface AmrLoginPillProps {
   revealPendingCancelAction?: boolean;
   showConsoleAction?: boolean;
   iconOnlySignOut?: boolean;
+  // Suppress the inline error text inside the compact control. The host lifts
+  // the reason (via `onErrorChange`) and renders it somewhere with room to
+  // breathe — e.g. a full-width row under the Settings agent card — so the
+  // classified reason no longer wraps awkwardly next to the Authorize button.
+  hideInlineError?: boolean;
+  onErrorChange?: (message: string | null) => void;
   onStatusChange?: (status: VelaLoginStatus | null) => void;
 }
 
@@ -80,6 +86,9 @@ export interface AmrAccountControlProps {
   showConsoleAction?: boolean;
   consoleUrl?: string;
   iconOnlySignOut?: boolean;
+  // When true, the error status still styles the control (Authorize button) but
+  // the inline reason text is not rendered; the host shows it elsewhere.
+  hideInlineError?: boolean;
   showCancelSignInAction?: boolean;
   // Activation URL surfaced while signing in, so the user can re-open the
   // sign-in page when the browser did not auto-open. The URL already carries
@@ -128,6 +137,7 @@ export function AmrAccountControl({
   showConsoleAction = false,
   consoleUrl,
   iconOnlySignOut = false,
+  hideInlineError = false,
   showCancelSignInAction = false,
   activationUrl,
   browserOpenFailed = false,
@@ -238,7 +248,7 @@ export function AmrAccountControl({
           {signInLabel ?? t('settings.amrSignIn')}
         </button>
       ) : null}
-      {hasError ? (
+      {hasError && !hideInlineError ? (
         <span className="amr-account-control__error" role="alert">
           {loginErrorText}
         </span>
@@ -283,6 +293,8 @@ export function AmrLoginPill({
   revealPendingCancelAction = false,
   showConsoleAction = false,
   iconOnlySignOut = false,
+  hideInlineError = false,
+  onErrorChange,
   onStatusChange,
 }: AmrLoginPillProps) {
   const { t } = useI18n();
@@ -376,6 +388,12 @@ export function AmrLoginPill({
   useEffect(() => {
     onStatusChange?.(status);
   }, [onStatusChange, status]);
+
+  // Lift the resolved reason so a host that hides the inline error (e.g. the
+  // Settings agent card) can render it with room to breathe.
+  useEffect(() => {
+    onErrorChange?.(errorMessage);
+  }, [onErrorChange, errorMessage]);
 
   const startPolling = useCallback((startedAt = Date.now()) => {
     stopPolling();
@@ -638,6 +656,7 @@ export function AmrLoginPill({
         signInLabel={signInLabel}
         showConsoleAction={showConsoleAction}
         iconOnlySignOut={iconOnlySignOut}
+        hideInlineError={hideInlineError}
         signInDisabled={loginInFlight}
         signOutDisabled={logoutInFlight}
         showCancelSignInAction={revealPendingCancelAction && loginInFlight}
