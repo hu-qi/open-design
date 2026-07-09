@@ -1,0 +1,22 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "specVersion": "1.0.0",
+  "name": "design.md-mrcx0qjj",
+  "title": "DESIGN.md",
+  "version": "0.1.0",
+  "description": "> 文档版本：v1.0 > 适用项目：招商局巡视巡察系统前端工程 > 技术方向：Vue 3 + Vite + TypeScript + BladeX + 招商局 UI Design Token + AI Agent Engineering Harness > 目录标准：`AGENTS.md` + `.agents/` > 文档定位：按照行业常见工程设计文档标准输出，用于架构评审、开发落地、AI Agent 上下文沉淀与后续演进。",
+  "od": {
+    "kind": "skill",
+    "taskKind": "new-generation",
+    "context": {
+      "skills": [
+        {
+          "path": "./SKILL.md"
+        }
+      ]
+    },
+    "capabilities": [
+      "prompt:inject"
+    ]
+  }
+}
