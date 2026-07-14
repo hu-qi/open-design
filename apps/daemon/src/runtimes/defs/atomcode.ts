@@ -7,10 +7,10 @@ import type { RuntimeAgentDef } from '../types.js';
 // Install: `cargo install --path crates/atomcode-cli --locked` (from source)
 //          or `npm install -g @atomgit.com/atomcode` / `brew install --cask atomcode`
 //
-// Headless mode (`atomcode -p "..."`) runs a single prompt non-interactively and
-// streams the assistant reply on stdout — Claude Code `-p` style. OD composes
-// the prompt in a temp file (AtomCode exposes `--prompt-file <PATH>`) to stay
-// clear of argv length limits, exactly like grok-build.
+// Headless mode with `--prompt-file <PATH>` runs a single prompt
+// non-interactively and streams the assistant reply on stdout. OD composes the
+// prompt in a temp file to stay clear of argv length limits, exactly like
+// grok-build.
 //
 // AtomCode owns its own authentication: users run `atomcode login` (AtomGit
 // OAuth, auto-persisted under `~/.atomcode/`) or set up an API key in
@@ -24,16 +24,12 @@ import type { RuntimeAgentDef } from '../types.js';
 // (single-turn text reply, no tool_use streaming). Upgrading to a structured
 // parser is follow-up work once AtomCode ships a stable JSON event stream.
 //
-// Safety: `--dangerously-skip-permissions` auto-approves every tool call so the
-// headless run doesn't block on an approval prompt it can't surface. This
-// matches the documented headless contract: approval-required `bash` calls are
-// auto-approved, while other approval-required tools are denied. The
-// `-y` short flag is the alias AtomCode documents for CI/eval harnesses.
+// Safety: OD passes AtomCode's documented `-y` flag so the non-interactive run
+// can proceed without waiting for an approval prompt it cannot surface.
 export const atomcodeAgentDef = {
     id: 'atomcode',
     name: 'AtomCode CLI',
     bin: 'atomcode',
-    fallbackBins: ['atomcode'],
     versionArgs: ['--version'],
     fallbackModels: [
         DEFAULT_MODEL_OPTION,
